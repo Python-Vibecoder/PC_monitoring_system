@@ -1,0 +1,2125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Activity Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glow-green { box-shadow: 0 0 20px rgba(34, 197, 94, 0.35); }
+        .glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.35); }
+        .glow-yellow { box-shadow: 0 0 20px rgba(234, 179, 8, 0.35); }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.2); } }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
+        .activity-bar { transition: width 0.5s ease; }
+        .app-bar { transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); }
+        .connected-pulse { animation: connPulse 3s infinite; }
+        @keyframes connPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); } 50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); } }
+        .idle-popup-overlay { backdrop-filter: blur(8px); }
+        .idle-cat-btn { transition: all 0.2s; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(40px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes bounceIn { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.05); } 70% { transform: scale(0.9); } 100% { transform: scale(1); opacity: 1; } }
+        .bounce-in { animation: bounceIn 0.6s; }
+        .proj-btn { transition: all 0.15s; }
+        .proj-btn.active-proj { transform: scale(1.03); }
+        /* Tab system */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-btn { transition: all 0.2s; }
+        .tab-btn.active { color: #60a5fa; }
+        .tab-btn.active .tab-icon { color: #60a5fa; }
+        /* Bottom nav safe area */
+        .bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
+        /* Day download buttons */
+        .day-dl-btns { display: none; }
+        .day-card:hover .day-dl-btns { display: flex; }
+        /* Stat card numbers scale down on small screens */
+        .stat-num { font-size: clamp(1.25rem, 4vw, 1.875rem); }
+        .stat-num-lg { font-size: clamp(2rem, 8vw, 3.75rem); }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+
+    <!-- Connection Banner -->
+    <div id="connectionBanner" class="bg-gradient-to-r from-red-900/80 to-orange-900/80 border-b border-red-500/30 backdrop-blur-xl flex-shrink-0">
+        <div class="px-4 py-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="text-xl flex-shrink-0" id="connIcon">🔌</div>
+                <div class="min-w-0">
+                    <p class="font-bold text-white text-sm truncate" id="connTitle">Connecting to monitor.py...</p>
+                    <p class="text-xs text-red-200 truncate" id="connDesc">Make sure <code class="bg-red-800/50 px-1 rounded font-mono">monitor.py</code> is running.</p>
+                </div>
+            </div>
+            <div id="connActions" class="flex-shrink-0">
+                <button onclick="tryConnect()" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs font-bold transition-all">Retry</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-gray-900/90 backdrop-blur-xl border-b border-gray-800 flex-shrink-0 sticky top-0 z-40">
+        <div class="px-4 py-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-sm flex-shrink-0">🖥️</div>
+                <div class="min-w-0">
+                    <h1 class="text-base font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent leading-tight">Activity Monitor</h1>
+                    <div class="flex items-center gap-1">
+                        <span id="modeIndicator" class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[9px] font-bold">⏳ CONNECTING</span>
+                        <span id="projectBadgeHeader" class="hidden items-center px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-bold"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+                <div id="statusBadge" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gray-800 border border-gray-700">
+                    <span id="statusDot" class="w-2 h-2 rounded-full bg-gray-500"></span>
+                    <span id="statusText" class="text-xs font-medium text-gray-400">Wait</span>
+                </div>
+                <!-- Export dropdown -->
+                <div class="relative" id="exportMenuWrap">
+                    <button onclick="toggleExportMenu()" class="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs font-medium transition-colors flex items-center gap-1">📥 <span class="hidden sm:inline">Export</span> ▾</button>
+                    <div id="exportMenu" class="hidden absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 min-w-[140px] overflow-hidden">
+                        <button onclick="exportCSV();toggleExportMenu()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-700 transition-colors flex items-center gap-2">📥 CSV Today</button>
+                        <button onclick="exportObsidian();toggleExportMenu()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-700 transition-colors flex items-center gap-2">💎 Daily MD</button>
+                        <button onclick="exportWeekly();toggleExportMenu()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-700 transition-colors flex items-center gap-2">📅 Weekly MD</button>
+                        <button onclick="exportFortnightly();toggleExportMenu()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-700 transition-colors flex items-center gap-2">📋 Fortnightly</button>
+                        <div class="border-t border-gray-700"></div>
+                        <button onclick="clearData();toggleExportMenu()" class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-700 text-red-400 transition-colors flex items-center gap-2">🗑️ Clear Data</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Tab Content Area — scrollable -->
+    <main class="flex-1 overflow-y-auto pb-20" id="mainContent">
+
+        <!-- ===== TAB: OVERVIEW ===== -->
+        <div id="tab-overview" class="tab-content active p-4 space-y-4 fade-in">
+
+            <!-- Current App Banner -->
+            <div id="currentAppBanner" class="hidden bg-gradient-to-r from-cyan-950 to-blue-950 border border-cyan-500/30 rounded-2xl p-3">
+                <div class="flex items-center gap-3">
+                    <span id="currentAppIcon" class="text-2xl flex-shrink-0">📱</span>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-[10px] text-cyan-400/60 font-medium uppercase tracking-wider">Currently Using</p>
+                        <p id="currentAppName" class="text-base font-bold text-white truncate">—</p>
+                        <p id="currentAppWindow" class="text-xs text-cyan-300 truncate">—</p>
+                    </div>
+                    <div class="flex-shrink-0 text-right">
+                        <span id="currentAppCategory" class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 block mb-1">—</span>
+                        <span id="currentBrowserSubcat" class="hidden text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 block mb-1">—</span>
+                        <span id="currentAppProductivity" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-400 block">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Smart Daily Insights -->
+            <div id="insightsPanel" class="bg-gradient-to-br from-slate-900 to-gray-900 border border-blue-500/20 rounded-2xl p-4 hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-xs font-semibold text-blue-300">💡 Today's Insights</p>
+                    <span id="insightsDot" class="w-2 h-2 rounded-full bg-blue-500 pulse-dot"></span>
+                </div>
+                <div id="insightsList" class="space-y-1.5"></div>
+            </div>
+
+            <!-- Distance Hero Cards — compact on mobile -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-gradient-to-br from-indigo-950 to-purple-950 border border-indigo-500/30 rounded-2xl p-4 text-center">
+                    <p class="text-xs text-indigo-300 font-medium mb-1">🏃 Mouse Distance</p>
+                    <p id="mouseMiles" class="stat-num-lg font-black text-indigo-400 leading-tight">0.0000</p>
+                    <p class="text-sm text-indigo-300 font-bold">miles</p>
+                    <div class="grid grid-cols-2 gap-1.5 mt-3">
+                        <div class="bg-indigo-900/40 rounded-lg px-2 py-1.5 border border-indigo-500/20"><p class="text-indigo-400/60 text-[10px]">Feet</p><p id="mouseFeet" class="text-sm font-bold text-indigo-300">0</p></div>
+                        <div class="bg-indigo-900/40 rounded-lg px-2 py-1.5 border border-indigo-500/20"><p class="text-indigo-400/60 text-[10px]">ft/min</p><p id="mouseSpeed" class="text-sm font-bold text-indigo-300">0</p></div>
+                    </div>
+                    <p class="text-[10px] text-indigo-400/40 mt-1"><span id="mousePx">0</span> px</p>
+                </div>
+                <div class="bg-gradient-to-br from-yellow-950 to-orange-950 border border-yellow-500/30 rounded-2xl p-4 text-center">
+                    <p class="text-xs text-yellow-300 font-medium mb-1">📜 Scroll Distance</p>
+                    <p id="scrollMiles" class="stat-num-lg font-black text-yellow-400 leading-tight">0.0000</p>
+                    <p class="text-sm text-yellow-300 font-bold">miles</p>
+                    <div class="grid grid-cols-2 gap-1.5 mt-3">
+                        <div class="bg-yellow-900/40 rounded-lg px-2 py-1.5 border border-yellow-500/20"><p class="text-yellow-400/60 text-[10px]">Feet</p><p id="scrollFeet" class="text-sm font-bold text-yellow-300">0</p></div>
+                        <div class="bg-yellow-900/40 rounded-lg px-2 py-1.5 border border-yellow-500/20"><p class="text-yellow-400/60 text-[10px]">↑↓</p><p class="text-sm font-bold text-yellow-300"><span id="scrollUpCount">0</span>/<span id="scrollDownCount">0</span></p></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sleep Banner -->
+            <div id="sleepBanner" class="hidden bg-gradient-to-r from-blue-900/60 to-cyan-900/60 border border-blue-500/30 rounded-xl p-3">
+                <div class="flex items-center gap-2 flex-wrap"><span class="text-lg">💻</span><div class="flex-1 min-w-0"><p class="font-bold text-blue-300 text-sm">Sleep/Off Gaps Detected</p><p id="sleepInfo" class="text-xs text-blue-400/80"></p></div><span id="sleepExcluded" class="text-xs font-mono text-blue-400 bg-blue-500/20 px-2 py-1 rounded-full"></span></div>
+            </div>
+
+            <!-- Time Stats -->
+            <div class="grid grid-cols-2 gap-3">
+                <div id="sessionCard" class="bg-gray-900 border border-gray-800 rounded-2xl p-4 transition-all duration-500">
+                    <div class="flex items-center justify-between mb-2"><span class="text-gray-400 text-xs font-medium">Session</span><span class="text-lg">⏱️</span></div>
+                    <p id="currentSession" class="stat-num font-bold text-white">00:00:00</p>
+                    <p class="text-[10px] text-gray-500 mt-1">Started: <span id="sessionStart">--:--</span></p>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-2"><span class="text-gray-400 text-xs font-medium">Total Active</span><span class="text-lg">🟢</span></div>
+                    <p id="activeToday" class="stat-num font-bold text-green-400">00:00:00</p>
+                    <p id="activePercent" class="text-[10px] text-gray-500 mt-1">0% tracked</p>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-2"><span class="text-gray-400 text-xs font-medium">Idle Today</span><span class="text-lg">🔴</span></div>
+                    <p id="idleToday" class="stat-num font-bold text-red-400">00:00:00</p>
+                    <p id="idlePercent" class="text-[10px] text-gray-500 mt-1">0% tracked</p>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-2"><span class="text-gray-400 text-xs font-medium">Interactions</span><span class="text-lg">👆</span></div>
+                    <p id="totalInteractions" class="stat-num font-bold text-blue-400">0</p>
+                    <div class="flex gap-2 text-[10px] text-gray-500 mt-1"><span>⌨️<span id="quickKeys">0</span></span><span>🖱️<span id="quickClicks">0</span></span><span>🔄<span id="quickScrolls">0</span></span></div>
+                </div>
+            </div>
+
+            <!-- Input Stats -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-gray-900 border border-orange-500/30 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-2"><span class="text-orange-400 text-xs font-medium">🔄 Scrolls</span><span id="spmBadge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400">0 SPM</span></div>
+                    <p id="scrollCount" class="stat-num font-bold text-orange-400">0</p>
+                </div>
+                <div class="bg-gray-900 border border-yellow-500/30 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-2"><span class="text-yellow-400 text-xs font-medium">🖱️ Clicks</span><span id="cpmBadge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">0 CPM</span></div>
+                    <p id="clickCount" class="stat-num font-bold text-yellow-400">0</p>
+                    <div class="grid grid-cols-3 gap-1 mt-2 text-[10px]">
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">L</p><p id="leftClicks" class="text-yellow-300 font-bold">0</p></div>
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">R</p><p id="rightClicks" class="text-yellow-300 font-bold">0</p></div>
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">M</p><p id="middleClicks" class="text-yellow-300 font-bold">0</p></div>
+                    </div>
+                </div>
+                <div class="bg-gray-900 border border-indigo-500/30 rounded-2xl p-4 col-span-2">
+                    <div class="flex items-center justify-between mb-2"><span class="text-indigo-400 text-xs font-medium">⌨️ Keys</span><span id="kpmBadge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400">0 KPM</span></div>
+                    <div class="flex items-end gap-6 mb-3">
+                        <div>
+                            <p id="keystrokeCount" class="stat-num font-bold text-indigo-400">0</p>
+                            <p class="text-[10px] text-gray-500 mt-0.5">keystrokes</p>
+                        </div>
+                        <div>
+                            <p id="wordCount" class="stat-num font-bold text-violet-400">0</p>
+                            <p class="text-[10px] text-gray-500 mt-0.5">words typed</p>
+                        </div>
+                        <div class="ml-auto text-right">
+                            <p id="wpmDisplay" class="stat-num font-bold text-violet-300">0</p>
+                            <p class="text-[10px] text-gray-500 mt-0.5">WPM</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-4 gap-1.5 mb-3 text-[10px]">
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">Peak KPM</p><p id="peakKpm" class="text-indigo-300 font-bold">0</p></div>
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">Bursts</p><p id="typingBurstCount" class="text-indigo-300 font-bold">0</p></div>
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">Space/Enter</p><p id="wordSeparators" class="text-violet-300 font-bold">0</p></div>
+                        <div class="bg-gray-800/50 rounded-lg p-1.5 text-center"><p class="text-gray-500">Avg len</p><p id="avgWordLen" class="text-violet-300 font-bold">~5 ch</p></div>
+                    </div>
+                    <p class="text-gray-400 text-[10px] font-medium mb-1.5">🎯 Key Types</p>
+                    <div class="space-y-1 text-[10px]" id="keyCategoryList"><span class="text-gray-600">Start typing...</span></div>
+                </div>
+            </div>
+
+            <!-- Deep Focus + App Switch Fatigue -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-gradient-to-br from-emerald-950 to-teal-950 border border-emerald-500/30 rounded-2xl p-4">
+                    <p class="text-[10px] text-emerald-400/70 font-medium mb-1">🧠 Longest Focus Block</p>
+                    <p id="deepFocusTime" class="text-2xl font-black text-emerald-400">—</p>
+                    <p id="deepFocusApp" class="text-[10px] text-emerald-300/60 mt-0.5 truncate">No data yet</p>
+                    <p id="deepFocusWhen" class="text-[9px] text-gray-600 mt-0.5">—</p>
+                </div>
+                <div class="bg-gradient-to-br from-violet-950 to-purple-950 border border-violet-500/30 rounded-2xl p-4">
+                    <p class="text-[10px] text-violet-400/70 font-medium mb-1">🔀 App Switch Rate</p>
+                    <p id="switchRate" class="text-2xl font-black text-violet-400">0</p>
+                    <p class="text-[10px] text-violet-300/60 mt-0.5">/hr · <span id="switchTotal">0</span> total</p>
+                    <p id="switchFatigue" class="text-[9px] mt-0.5 text-gray-500">—</p>
+                </div>
+            </div>
+
+            <!-- Pomodoro / Break Reminder -->
+            <div id="pomodoroCard" class="bg-gradient-to-br from-rose-950 to-pink-950 border border-rose-500/30 rounded-2xl p-4 hidden">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-rose-300">⏰ Break Reminder</p>
+                        <p id="pomodoroMsg" class="text-[10px] text-rose-400/70 mt-0.5">You've been active for a while</p>
+                    </div>
+                    <button onclick="dismissPomodoro()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 rounded-lg text-xs font-bold text-white transition-colors">Take Break</button>
+                </div>
+                <div class="mt-2 w-full bg-rose-900/40 rounded-full h-1.5"><div id="pomodoroBar" class="h-full rounded-full bg-rose-500 transition-all" style="width:0%"></div></div>
+            </div>
+
+            <!-- Typing Burst Timeline -->
+            <div class="bg-gray-900 border border-indigo-500/20 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-xs font-semibold text-indigo-300">⌨️ Typing Burst Timeline</p>
+                    <span id="burstSummaryBadge" class="text-[10px] px-2 py-0.5 bg-indigo-500/20 text-indigo-400 rounded-full">0 bursts</span>
+                </div>
+                <div id="typingBurstTimeline" class="space-y-1 max-h-48 overflow-y-auto">
+                    <div class="text-center text-gray-600 text-xs py-4">Start typing to see bursts…</div>
+                </div>
+            </div>
+
+            <!-- Intensity Bars -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
+                <p class="text-xs font-semibold text-gray-400">⚡ Live Intensity</p>
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2"><span class="text-xs text-gray-400 w-16 flex-shrink-0">⌨️ Typing</span><div class="flex-1 bg-gray-800 rounded-full h-3 overflow-hidden"><div id="kbIntBar" class="activity-bar h-full rounded-full bg-gradient-to-r from-indigo-600 to-indigo-400" style="width:0%"></div></div><span id="kbIntLabel" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-400 w-14 text-center flex-shrink-0">Idle</span></div>
+                    <div class="flex items-center gap-2"><span class="text-xs text-gray-400 w-16 flex-shrink-0">🖱️ Clicks</span><div class="flex-1 bg-gray-800 rounded-full h-3 overflow-hidden"><div id="msIntBar" class="activity-bar h-full rounded-full bg-gradient-to-r from-yellow-600 to-yellow-400" style="width:0%"></div></div><span id="msIntLabel" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-400 w-14 text-center flex-shrink-0">Idle</span></div>
+                    <div class="flex items-center gap-2"><span class="text-xs text-gray-400 w-16 flex-shrink-0">🔄 Scroll</span><div class="flex-1 bg-gray-800 rounded-full h-3 overflow-hidden"><div id="scIntBar" class="activity-bar h-full rounded-full bg-gradient-to-r from-orange-600 to-orange-400" style="width:0%"></div></div><span id="scIntLabel" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-400 w-14 text-center flex-shrink-0">Idle</span></div>
+                    <div class="flex items-center gap-2"><span class="text-xs text-gray-400 w-16 flex-shrink-0">⚡ Overall</span><div class="flex-1 bg-gray-800 rounded-full h-3 overflow-hidden"><div id="ovIntBar" class="activity-bar h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-400" style="width:0%"></div></div><span id="ovIntLabel" class="text-[10px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-400 w-14 text-center flex-shrink-0">Idle</span></div>
+                </div>
+            </div>
+
+            <!-- Score + Idle/Sleep/Annotations -->
+            <div class="grid grid-cols-1 gap-3">
+                <!-- Score -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div class="flex items-center gap-4">
+                        <div class="relative w-24 h-24 flex-shrink-0">
+                            <svg class="w-full h-full -rotate-90" viewBox="0 0 120 120">
+                                <circle cx="60" cy="60" r="52" fill="none" stroke="#1e293b" stroke-width="10"/>
+                                <circle id="scoreCircle" cx="60" cy="60" r="52" fill="none" stroke="url(#scoreGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="326.73"/>
+                                <defs><linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#a855f7"/></linearGradient></defs>
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center"><span id="scoreValue" class="text-2xl font-bold">0</span><span class="text-[10px] text-gray-500">/ 100</span></div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-semibold text-gray-300">🏆 Productivity Score</p>
+                            <p id="scoreMsg" class="text-xs text-gray-400 mt-1">Start working</p>
+                            <!-- Goal progress -->
+                            <div class="mt-2">
+                                <div class="flex items-center justify-between text-[10px] text-gray-500 mb-1">
+                                    <span>🎯 Daily Goal</span>
+                                    <span><span id="goalProgress">0</span>h / <span id="goalTarget" class="cursor-pointer text-blue-400 hover:text-blue-300" onclick="promptGoal()" title="Click to change goal">6</span>h</span>
+                                </div>
+                                <div class="w-full bg-gray-800 rounded-full h-1.5"><div id="goalBar" class="h-full rounded-full bg-blue-500 transition-all duration-500" style="width:0%"></div></div>
+                            </div>
+                            <!-- Focus mini-bars -->
+                            <div class="mt-2 space-y-0.5">
+                                <div class="flex items-center gap-1.5"><span class="text-[9px] text-green-400 w-12">✅ Prod</span><div class="flex-1 bg-gray-800 rounded-full h-1.5"><div id="scoreProdBar" class="h-full rounded-full bg-green-500 transition-all" style="width:0%"></div></div><span id="scoreProdTime" class="text-[9px] text-green-400 w-8 text-right">—</span></div>
+                                <div class="flex items-center gap-1.5"><span class="text-[9px] text-red-400 w-12">🚫 Dist</span><div class="flex-1 bg-gray-800 rounded-full h-1.5"><div id="scoreDistBar" class="h-full rounded-full bg-red-500 transition-all" style="width:0%"></div></div><span id="scoreDistTime" class="text-[9px] text-red-400 w-8 text-right">—</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Idle -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-semibold text-gray-300">😴 Idle / Away</h3><span id="idleCount" class="text-[10px] px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full">0 breaks</span></div>
+                    <div id="idleLog" class="space-y-1.5 max-h-48 overflow-y-auto"><div class="text-center text-gray-600 text-xs py-6">No idle periods yet</div></div>
+                </div>
+
+                <!-- Sleep -->
+                <div class="bg-gray-900 border border-blue-500/30 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-semibold text-blue-300">💻 PC Sleep / Off</h3><span id="sleepCount" class="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">0 gaps</span></div>
+                    <div id="sleepLog" class="space-y-1.5 max-h-48 overflow-y-auto"><div class="text-center text-gray-600 text-xs py-6">No sleep gaps ✅</div></div>
+                </div>
+
+                <!-- Annotations -->
+                <div class="bg-gray-900 border border-amber-500/30 rounded-2xl p-4">
+                    <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-semibold text-amber-300">📝 Where Was I?</h3><span id="annotationCount" class="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded-full">0 notes</span></div>
+                    <div id="annotationLog" class="space-y-1.5 max-h-48 overflow-y-auto"><div class="text-center text-gray-600 text-xs py-6">Annotations appear after idle</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TAB: APPS ===== -->
+        <div id="tab-apps" class="tab-content p-4 space-y-4 fade-in">
+            <div id="appSection">
+                <!-- Top Apps -->
+                <div class="bg-gray-900 border border-cyan-500/20 rounded-2xl p-4 mb-4">
+                    <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-semibold text-cyan-300">📱 Top Applications</h3><span id="appCountBadge" class="text-[10px] px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded-full">0 apps</span></div>
+                    <div id="topAppsList" class="space-y-2 max-h-96 overflow-y-auto"><div class="text-center text-gray-600 text-sm py-8">Waiting for app data...</div></div>
+                </div>
+                <!-- Categories + Switches -->
+                <div class="grid grid-cols-1 gap-4">
+                    <div class="bg-gray-900 border border-purple-500/20 rounded-2xl p-4">
+                        <h3 class="text-sm font-semibold text-purple-300 mb-3">🏷️ Categories</h3>
+                        <div id="appCategoryList" class="space-y-2"><div class="text-center text-gray-600 text-sm py-6">No categories yet</div></div>
+                    </div>
+                    <div class="bg-gray-900 border border-gray-700 rounded-2xl p-4">
+                        <h4 class="text-sm font-semibold text-gray-400 mb-3">📱 Recent App Switches</h4>
+                        <div id="appSwitchTimeline" class="space-y-1 max-h-48 overflow-y-auto"><div class="text-center text-gray-600 text-xs py-4">No switches yet</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TAB: CHARTS ===== -->
+        <div id="tab-charts" class="tab-content p-4 space-y-4 fade-in">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h3 class="text-sm font-semibold text-gray-300 mb-3">📊 Hourly Active vs Idle</h3><div class="h-52"><canvas id="hourlyChart"></canvas></div></div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h3 class="text-sm font-semibold text-gray-300 mb-3">🍩 Time Breakdown</h3><div class="h-52"><canvas id="pieChart"></canvas></div></div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h3 class="text-sm font-semibold text-gray-300 mb-3">🎯 Focus by Hour</h3><div class="h-52"><canvas id="focusChart"></canvas></div></div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h3 class="text-sm font-semibold text-gray-300 mb-3">🍩 Focus Breakdown</h3><div class="h-52"><canvas id="focusPieChart"></canvas></div></div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h3 class="text-sm font-semibold text-gray-300 mb-3">⌨️🖱️🔄 Input by Hour</h3><div class="h-52"><canvas id="inputChart"></canvas></div></div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h3 class="text-sm font-semibold text-gray-300 mb-3">📏 Distance by Hour</h3><div class="h-52"><canvas id="distChart"></canvas></div></div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4" id="appChartSection"><h3 class="text-sm font-semibold text-gray-300 mb-3">📱 App Usage</h3><div class="h-64"><canvas id="appChart"></canvas></div></div>
+        </div>
+
+        <!-- ===== TAB: HISTORY ===== -->
+        <div id="tab-history" class="tab-content p-4 space-y-4 fade-in">
+            <!-- Streak Cards -->
+            <div class="grid grid-cols-3 gap-3" id="streakCards">
+                <div class="bg-gradient-to-br from-orange-950 to-red-950 border border-orange-500/30 rounded-2xl p-4 text-center">
+                    <p class="text-[10px] text-orange-400/70 font-medium mb-1">🔥 Current Streak</p>
+                    <p id="currentStreak" class="text-3xl font-black text-orange-400">0</p>
+                    <p class="text-[10px] text-orange-400/50 mt-0.5">days</p>
+                </div>
+                <div class="bg-gradient-to-br from-yellow-950 to-amber-950 border border-yellow-500/30 rounded-2xl p-4 text-center">
+                    <p class="text-[10px] text-yellow-400/70 font-medium mb-1">🏆 Best Streak</p>
+                    <p id="bestStreak" class="text-3xl font-black text-yellow-400">0</p>
+                    <p class="text-[10px] text-yellow-400/50 mt-0.5">days</p>
+                </div>
+                <div class="bg-gradient-to-br from-blue-950 to-indigo-950 border border-blue-500/30 rounded-2xl p-4 text-center">
+                    <p class="text-[10px] text-blue-400/70 font-medium mb-1">📅 Active Days</p>
+                    <p id="totalActiveDays" class="text-3xl font-black text-blue-400">0</p>
+                    <p class="text-[10px] text-blue-400/50 mt-0.5">total</p>
+                </div>
+            </div>
+            <!-- Trend Sparklines -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-xs font-semibold text-gray-300">📈 30-Day Trends</p>
+                    <span class="text-[10px] text-gray-500">hover for value</span>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex items-center justify-between text-[10px] text-gray-500 mb-1"><span>🟢 Active Time</span><span id="sparkActiveAvg">avg —</span></div>
+                        <div id="sparkActive" class="flex items-end gap-0.5 h-8"></div>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between text-[10px] text-gray-500 mb-1"><span>⌨️ Keystrokes</span><span id="sparkKeysAvg">avg —</span></div>
+                        <div id="sparkKeys" class="flex items-end gap-0.5 h-8"></div>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between text-[10px] text-gray-500 mb-1"><span>🏆 Score</span><span id="sparkScoreAvg">avg —</span></div>
+                        <div id="sparkScore" class="flex items-end gap-0.5 h-8"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Personal Records -->
+            <div class="bg-gradient-to-br from-yellow-950/50 to-amber-950/50 border border-yellow-500/20 rounded-2xl p-4">
+                <p class="text-xs font-semibold text-yellow-300 mb-3">🏅 Personal Records</p>
+                <div class="grid grid-cols-2 gap-2 text-[10px]" id="personalRecords">
+                    <div class="bg-gray-800/50 rounded-lg p-2"><p class="text-gray-500">Most Active Day</p><p id="prBestDay" class="text-yellow-300 font-bold mt-0.5">—</p></div>
+                    <div class="bg-gray-800/50 rounded-lg p-2"><p class="text-gray-500">Highest KPM Ever</p><p id="prBestKpm" class="text-yellow-300 font-bold mt-0.5">—</p></div>
+                    <div class="bg-gray-800/50 rounded-lg p-2"><p class="text-gray-500">Best Productivity Score</p><p id="prBestScore" class="text-yellow-300 font-bold mt-0.5">—</p></div>
+                    <div class="bg-gray-800/50 rounded-lg p-2"><p class="text-gray-500">Most Keystrokes Day</p><p id="prMostKeys" class="text-yellow-300 font-bold mt-0.5">—</p></div>
+                </div>
+            </div>
+
+            <!-- Time-of-Day Pattern -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <p class="text-xs font-semibold text-gray-300 mb-3">🕐 Your Patterns (14-day avg)</p>
+                <div class="grid grid-cols-2 gap-3 text-[10px]">
+                    <div class="bg-green-500/5 border border-green-500/20 rounded-lg p-2.5">
+                        <p class="text-green-400/70 mb-0.5">⚡ Peak Hour</p>
+                        <p id="patternPeakHour" class="text-green-300 font-bold text-sm">—</p>
+                        <p id="patternPeakVal" class="text-green-400/50 mt-0.5">—</p>
+                    </div>
+                    <div class="bg-red-500/5 border border-red-500/20 rounded-lg p-2.5">
+                        <p class="text-red-400/70 mb-0.5">😴 Quietest Hour</p>
+                        <p id="patternQuietHour" class="text-red-300 font-bold text-sm">—</p>
+                        <p id="patternQuietVal" class="text-red-400/50 mt-0.5">—</p>
+                    </div>
+                    <div class="bg-blue-500/5 border border-blue-500/20 rounded-lg p-2.5 col-span-2">
+                        <p class="text-blue-400/70 mb-1">📊 Hourly activity pattern</p>
+                        <div id="patternBar" class="flex items-end gap-px h-6"></div>
+                        <div class="flex justify-between text-[8px] text-gray-600 mt-0.5"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Heatmap -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <h3 class="text-sm font-semibold text-gray-300 mb-3">🔥 Activity Heatmap (Last 14 Days)</h3>
+                <div id="heatmap" class="space-y-1 overflow-x-auto"></div>
+                <div class="flex items-center justify-between mt-3">
+                    <div class="flex items-center gap-1.5 text-[10px] text-gray-500"><span>Less</span><div class="w-3 h-3 rounded bg-gray-800"></div><div class="w-3 h-3 rounded bg-green-900"></div><div class="w-3 h-3 rounded bg-green-700"></div><div class="w-3 h-3 rounded bg-green-500"></div><div class="w-3 h-3 rounded bg-green-400"></div><span>More</span></div>
+                    <span class="text-[10px] text-gray-600">cell = 1hr</span>
+                </div>
+            </div>
+
+            <!-- Daily Summary -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h3 class="text-sm font-semibold text-gray-300">📅 Daily Summary</h3>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button onclick="navigateDays(7)" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-[10px] font-medium text-gray-300 transition-colors">⏪7d</button>
+                        <button onclick="navigateDays(1)" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-[10px] font-medium text-gray-300 transition-colors">◀</button>
+                        <span id="dayRangeLabel" class="text-[10px] text-gray-400 font-mono px-1">—</span>
+                        <button onclick="navigateDays(-1)" id="nextDayBtn" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-[10px] font-medium text-gray-300 transition-colors">▶</button>
+                        <button onclick="navigateDays(-7)" id="nextWeekBtn" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-lg text-[10px] font-medium text-gray-300 transition-colors">7d⏩</button>
+                        <button onclick="goToToday()" class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg text-[10px] font-bold text-white transition-colors">Today</button>
+                    </div>
+                </div>
+                <div id="dailySummary" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2"></div>
+                <div class="flex items-center justify-between mt-3 text-[10px] text-gray-600 bg-gray-800/30 p-2 rounded-lg flex-wrap gap-1">
+                    <span id="availableDatesInfo">Loading dates...</span>
+                    <span>👆 Tap to view & download</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== TAB: LOG ===== -->
+        <div id="tab-log" class="tab-content p-4 space-y-4 fade-in">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h3 class="text-sm font-semibold text-gray-300">📋 Activity Log</h3>
+                    <div class="flex gap-1.5 flex-wrap">
+                        <button onclick="setFilter('all')" class="log-filter active-filter px-2 py-1 text-[10px] rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">All</button>
+                        <button onclick="setFilter('active')" class="log-filter px-2 py-1 text-[10px] rounded-full bg-gray-800 text-gray-400 border border-gray-700">Active</button>
+                        <button onclick="setFilter('idle')" class="log-filter px-2 py-1 text-[10px] rounded-full bg-gray-800 text-gray-400 border border-gray-700">Idle</button>
+                        <button onclick="setFilter('break')" class="log-filter px-2 py-1 text-[10px] rounded-full bg-gray-800 text-gray-400 border border-gray-700">Breaks</button>
+                        <button onclick="setFilter('typing')" class="log-filter px-2 py-1 text-[10px] rounded-full bg-gray-800 text-gray-400 border border-gray-700">Typing</button>
+                        <button onclick="setFilter('system')" class="log-filter px-2 py-1 text-[10px] rounded-full bg-gray-800 text-gray-400 border border-gray-700">System</button>
+                    </div>
+                </div>
+                <div id="activityLog" class="space-y-1 max-h-[calc(100vh-280px)] overflow-y-auto"><div class="text-center text-gray-600 text-sm py-8">Waiting for data...</div></div>
+            </div>
+        </div>
+
+        <!-- ===== TAB: CLOCK ===== -->
+        <div id="tab-clock" class="tab-content p-4 space-y-4 fade-in">
+
+            <!-- Live Clock -->
+            <div class="bg-gradient-to-br from-gray-900 to-slate-900 border border-blue-500/20 rounded-2xl p-6 text-center">
+                <p class="text-[10px] text-blue-400/60 font-medium uppercase tracking-widest mb-2">Current Time</p>
+                <div id="clockDisplay" class="font-black text-white leading-none tracking-tight" style="font-size: clamp(3rem, 15vw, 6rem);">00:00:00</div>
+                <div id="clockAmPm" class="text-blue-400 font-bold text-lg mt-1"></div>
+                <div id="clockDate" class="text-gray-400 text-sm mt-2 font-medium"></div>
+                <div id="clockTz" class="text-gray-600 text-[10px] mt-1 font-mono"></div>
+            </div>
+
+
+
+            <!-- Calendar -->
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-4">
+                    <button id="calPrevBtn" onclick="calShift(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 transition-colors text-sm">◀</button>
+                    <div class="text-center">
+                        <h3 id="calTitle" class="text-sm font-bold text-white"></h3>
+                        <p id="calYear" class="text-[10px] text-gray-500"></p>
+                    </div>
+                    <button id="calNextBtn" onclick="calShift(1)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 transition-colors text-sm">▶</button>
+                </div>
+                <!-- Day headers -->
+                <div class="grid grid-cols-7 mb-1">
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">M</div>
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">T</div>
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">W</div>
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">T</div>
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">F</div>
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">S</div>
+                    <div class="text-center text-[10px] text-gray-600 font-medium py-1">S</div>
+                </div>
+                <div id="calGrid" class="grid grid-cols-7 gap-0.5">
+                    <!-- filled by JS -->
+                </div>
+                <div class="flex items-center gap-3 mt-3 text-[10px] text-gray-600">
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span> Today</span>
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-green-500/60 inline-block"></span> Has data</span>
+                    <span id="calBackBtn" onclick="calGoToday()" class="ml-auto text-blue-400 hover:text-blue-300 cursor-pointer font-medium">Today ↩</span>
+                </div>
+            </div>
+
+
+
+        </div>
+
+    </main>
+
+    <!-- Bottom Tab Navigation -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-xl border-t border-gray-800 z-40 bottom-nav">
+        <div class="grid grid-cols-6 max-w-2xl mx-auto">
+            <button onclick="switchTab('overview')" id="btn-overview" class="tab-btn active flex flex-col items-center justify-center py-2 px-1 text-blue-400">
+                <span class="tab-icon text-xl">📊</span>
+                <span class="text-[10px] font-medium mt-0.5">Overview</span>
+            </button>
+            <button onclick="switchTab('apps')" id="btn-apps" class="tab-btn flex flex-col items-center justify-center py-2 px-1 text-gray-500">
+                <span class="tab-icon text-xl">📱</span>
+                <span class="text-[10px] font-medium mt-0.5">Apps</span>
+            </button>
+            <button onclick="switchTab('charts')" id="btn-charts" class="tab-btn flex flex-col items-center justify-center py-2 px-1 text-gray-500">
+                <span class="tab-icon text-xl">📈</span>
+                <span class="text-[10px] font-medium mt-0.5">Charts</span>
+            </button>
+            <button onclick="switchTab('history')" id="btn-history" class="tab-btn flex flex-col items-center justify-center py-2 px-1 text-gray-500">
+                <span class="tab-icon text-xl">📅</span>
+                <span class="text-[10px] font-medium mt-0.5">History</span>
+            </button>
+            <button onclick="switchTab('log')" id="btn-log" class="tab-btn flex flex-col items-center justify-center py-2 px-1 text-gray-500">
+                <span class="tab-icon text-xl">📋</span>
+                <span class="text-[10px] font-medium mt-0.5">Log</span>
+            </button>
+            <button onclick="switchTab('clock')" id="btn-clock" class="tab-btn flex flex-col items-center justify-center py-2 px-1 text-gray-500">
+                <span class="tab-icon text-xl">🕐</span>
+                <span class="text-[10px] font-medium mt-0.5">Clock</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- ==================== IDLE RETURN POPUP ==================== -->
+    <div id="idlePopup" class="fixed inset-0 bg-black/70 idle-popup-overlay z-[200] hidden items-center justify-center p-4">
+        <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-amber-500/40 rounded-3xl max-w-sm w-full shadow-2xl slide-up">
+            <div class="p-5 text-center border-b border-gray-700/50">
+                <div class="text-4xl mb-2 bounce-in">👋</div>
+                <h2 class="text-xl font-bold text-white">Welcome Back!</h2>
+                <p class="text-gray-400 mt-1 text-sm">Away for <span id="idlePopupDuration" class="text-amber-400 font-bold">--:--</span></p>
+                <p class="text-[10px] text-gray-500 mt-1"><span id="idlePopupTime" class="font-mono"></span></p>
+            </div>
+            <div class="p-5">
+                <p class="text-sm font-semibold text-gray-300 mb-3">What were you doing?</p>
+                <div class="grid grid-cols-4 gap-2 mb-4" id="idleCategoryGrid">
+                    <button onclick="selectIdleCat(this,'☕','Coffee/Tea')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">☕</span><span class="text-[9px] text-gray-400">Coffee</span></button>
+                    <button onclick="selectIdleCat(this,'🍽️','Lunch/Meal')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🍽️</span><span class="text-[9px] text-gray-400">Meal</span></button>
+                    <button onclick="selectIdleCat(this,'📞','Phone Call')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">📞</span><span class="text-[9px] text-gray-400">Phone</span></button>
+                    <button onclick="selectIdleCat(this,'🤝','Meeting')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🤝</span><span class="text-[9px] text-gray-400">Meeting</span></button>
+                    <button onclick="selectIdleCat(this,'🚶','Walk/Stretch')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🚶</span><span class="text-[9px] text-gray-400">Walk</span></button>
+                    <button onclick="selectIdleCat(this,'🚻','Bathroom')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🚻</span><span class="text-[9px] text-gray-400">Bathroom</span></button>
+                    <button onclick="selectIdleCat(this,'💬','Chatting')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">💬</span><span class="text-[9px] text-gray-400">Chat</span></button>
+                    <button onclick="selectIdleCat(this,'🎓','Helping Student')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🎓</span><span class="text-[9px] text-gray-400">Student</span></button>
+                    <button onclick="selectIdleCat(this,'🔧','Workshop')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🔧</span><span class="text-[9px] text-gray-400">Workshop</span></button>
+                    <button onclick="selectIdleCat(this,'🧪','Lab Work')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🧪</span><span class="text-[9px] text-gray-400">Lab Work</span></button>
+                    <button onclick="selectIdleCat(this,'💻','Working From Laptop')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">💻</span><span class="text-[9px] text-gray-400">Laptop</span></button>
+                    <button onclick="selectIdleCat(this,'🔬','In The Lab')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center"><span class="text-xl block">🔬</span><span class="text-[9px] text-gray-400">In The Lab</span></button>
+                    <button onclick="selectIdleCat(this,'❓','Other')" class="idle-cat-btn p-2 rounded-xl bg-gray-700/50 border border-gray-600/50 text-center col-span-4"><span class="text-[9px] text-gray-400">❓ Other</span></button>
+                </div>
+                <textarea id="idleNotes" placeholder="Notes (optional)..." rows="2" class="w-full bg-gray-700/50 border border-gray-600 rounded-xl p-2.5 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-amber-500/50 resize-none"></textarea>
+            </div>
+            <div class="p-4 border-t border-gray-700/50 flex gap-2">
+                <button onclick="submitIdleAnnotation()" id="idleSubmitBtn" class="flex-1 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 rounded-xl font-bold text-white text-sm transition-all disabled:opacity-40" disabled>📝 Log</button>
+                <button onclick="skipIdleAnnotation()" class="px-4 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm text-gray-300 transition-colors">Skip</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Day Detail Modal -->
+    <div id="dayDetailModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[90] hidden items-center justify-center p-2 sm:p-4">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[95vh] flex flex-col">
+            <div class="flex items-center justify-between p-3 border-b border-gray-800 gap-2 flex-wrap">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-lg">📅</span>
+                    <div class="min-w-0">
+                        <h3 id="dayDetailTitle" class="text-sm font-bold text-white truncate">Day Details</h3>
+                        <p id="dayDetailSubtitle" class="text-[10px] text-gray-500"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <button onclick="prevDayDetail()" id="ddPrevBtn" title="Previous day with data" class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs transition-colors">◀</button>
+                    <button onclick="nextDayDetail()" id="ddNextBtn" title="Next day with data" class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs transition-colors">▶</button>
+                    <input type="date" id="ddDatePicker" onchange="jumpToDate(this.value)" class="px-2 py-1 bg-gray-800 border border-gray-600 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-blue-500 cursor-pointer" title="Jump to date" />
+                    <button onclick="exportDayObsidian()" class="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs font-medium transition-colors">💎</button>
+                    <button onclick="exportDayCSV()" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium transition-colors">CSV</button>
+                    <button onclick="closeDayDetail()" class="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs transition-colors">✕</button>
+                </div>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1 space-y-3" id="dayDetailContent">
+                <div class="text-center text-gray-500 py-12">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Markdown Modal -->
+    <div id="mdModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden items-center justify-center p-2 sm:p-4">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[95vh] flex flex-col">
+            <div class="flex items-center justify-between p-3 border-b border-gray-800">
+                <div class="flex items-center gap-2"><span class="text-lg">💎</span><h3 id="mdModalTitle" class="text-sm font-bold text-white">Markdown</h3></div>
+                <div class="flex items-center gap-1.5">
+                    <button onclick="copyMd()" id="copyBtn" class="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-xs font-medium transition-colors">📋 Copy</button>
+                    <button onclick="downloadMd()" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs font-medium transition-colors">💾 Save</button>
+                    <button onclick="closeMd()" class="px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs transition-colors">✕</button>
+                </div>
+            </div>
+            <div class="p-3 overflow-y-auto flex-1"><pre id="mdContent" class="text-xs text-gray-300 font-mono whitespace-pre-wrap bg-gray-950 rounded-xl p-3 border border-gray-800 leading-relaxed"></pre></div>
+        </div>
+    </div>
+
+    <script>
+    // ==================== TAB NAVIGATION ====================
+    function switchTab(name) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active','text-blue-400');
+            btn.classList.add('text-gray-500');
+        });
+        const tab = document.getElementById('tab-' + name);
+        if (tab) { tab.classList.add('active'); }
+        const btn = document.getElementById('btn-' + name);
+        if (btn) { btn.classList.add('active','text-blue-400'); btn.classList.remove('text-gray-500'); }
+        // Refresh charts when switching to charts tab
+        if (name === 'charts') { setTimeout(updateCharts, 50); }
+        // Re-render calendar when switching to clock tab
+        if (name === 'clock') { renderCalendar(); }
+    }
+
+    // ==================== EXPORT MENU ====================
+    function toggleExportMenu() {
+        const m = document.getElementById('exportMenu');
+        m.classList.toggle('hidden');
+        if (!m.classList.contains('hidden')) {
+            setTimeout(() => document.addEventListener('click', closeExportMenuOnOutside, {once:true}), 10);
+        }
+    }
+    function closeExportMenuOnOutside(e) {
+        const wrap = document.getElementById('exportMenuWrap');
+        if (!wrap.contains(e.target)) document.getElementById('exportMenu').classList.add('hidden');
+    }
+
+    // ==================== STATE ====================
+    let connected = false, stats = null, history = {}, logFilter = 'all';
+    let lastMd = '', lastMdFile = '';
+    let prevStatus = 'active';
+    let selectedIdleCat = null, selectedIdleIcon = null, pendingIdlePeriod = null;
+    let nudgeDismissedAt = 0, currentDistractionApp = null, distractionStartTime = 0;
+    const AWAY_THRESHOLD = 300, POLL_INTERVAL = 1000, HISTORY_INTERVAL = 30000;
+    const NUDGE_THRESHOLD_MS = 5 * 60 * 1000; // 5 min distraction nudge
+    const NUDGE_COOLDOWN = 10 * 60 * 1000; // 10 min between nudges
+
+    // ==================== PRODUCTIVITY CLASSIFICATION ====================
+    const PRODUCTIVE_APPS = { apps: ['VS Code','Visual Studio','Microsoft Word','Microsoft Excel','PowerPoint','Outlook','OneNote','Microsoft Teams','Obsidian','Notion','Windows Terminal','PowerShell','Python','IntelliJ IDEA','PyCharm','MATLAB','SPSS','Todoist'], keywords: ['qualtrics','gorilla','pavlovia','jspsych','opensesame','psychopy','eprime','matlab','spss','github','gitlab','stackoverflow','documentation','sharepoint','onedrive','moodle','canvas','blackboard','.ac.uk','jira','trello','asana','microsoft365','office.com','teams.microsoft','outlook.live','outlook.office','docs.google','drive.google','scholar.google','pubmed','researchgate','sciencedirect','springer','wiley','apa.org','bps.org'] };
+    const DISTRACTING_APPS = { apps: ['Spotify'], keywords: ['youtube.com','reddit.com','twitter.com','x.com/','facebook.com','instagram.com','tiktok.com','netflix.com','twitch.tv','amazon.co','ebay.co','bbc.co.uk/sport','skysports','dailymail','buzzfeed','pinterest','snapchat','hoseasons','airbnb','booking.com','rightmove','zoopla','temu','shein','asos','argos','wish.com','9gag','imgur','tumblr','whatsapp.com'] };
+
+    const APP_ICONS = { 'Google Chrome':'🌐','Firefox':'🦊','Microsoft Edge':'🌊','VS Code':'💻','Microsoft Word':'📝','Microsoft Excel':'📊','PowerPoint':'📽️','Outlook':'📧','Microsoft Teams':'💬','File Explorer':'📁','Notepad':'📋','Slack':'💬','Discord':'🎮','Spotify':'🎵','Windows Terminal':'⬛','PowerShell':'🔵','Python':'🐍','Obsidian':'💎','Notion':'📝','Desktop':'🖥️','MATLAB':'📐','SPSS':'📈' };
+    const CAT_COLORS = { 'Browsers':'cyan','Development':'indigo','Office':'blue','Communication':'pink','Productivity':'green','Media':'purple','Design':'rose','Terminal':'gray','Remote':'teal','Research':'violet','Other':'slate' };
+    const CAT_ICONS = { 'Browsers':'🌐','Development':'💻','Office':'📄','Communication':'💬','Productivity':'📋','Media':'🎵','Design':'🎨','Terminal':'⬛','Remote':'🖥️','Research':'🔬','Other':'📦' };
+
+    function classifyApp(appName, windowTitle) {
+        const title = (windowTitle || '').toLowerCase();
+        const app = (appName || '').toLowerCase();
+        if (PRODUCTIVE_APPS.apps.some(a => a.toLowerCase() === appName)) return 'productive';
+        if (DISTRACTING_APPS.apps.some(a => a.toLowerCase() === appName)) return 'distracting';
+        if (PRODUCTIVE_APPS.keywords.some(k => title.includes(k) || app.includes(k))) return 'productive';
+        if (DISTRACTING_APPS.keywords.some(k => title.includes(k) || app.includes(k))) return 'distracting';
+        return 'neutral';
+    }
+
+    function classifyAppFromData(appName, windows) {
+        if (PRODUCTIVE_APPS.apps.includes(appName)) return 'productive';
+        if (DISTRACTING_APPS.apps.includes(appName)) return 'distracting';
+        const wins = (windows || []).map(w => (w.title || '').toLowerCase());
+        if (PRODUCTIVE_APPS.keywords.some(k => wins.some(w => w.includes(k)))) return 'productive';
+        if (DISTRACTING_APPS.keywords.some(k => wins.some(w => w.includes(k)))) return 'distracting';
+        // Browsers with no keyword match default to neutral
+        return 'neutral';
+    }
+
+    // Split browser app time using subcategory productivity data.
+    // Returns { prodMs, distMs, neutMs } for a single browser app entry.
+    function browserSplitFromSubcats(appTotalMs, browserSubcats) {
+        const entries = Object.values(browserSubcats || {});
+        if (!entries.length) return { prodMs: 0, distMs: 0, neutMs: appTotalMs };
+        const subcatTotal = entries.reduce((s, d) => s + d.ms, 0);
+        if (!subcatTotal) return { prodMs: 0, distMs: 0, neutMs: appTotalMs };
+        let p = 0, d = 0, n = 0;
+        for (const sub of entries) {
+            if (sub.productivity === 'productive') p += sub.ms;
+            else if (sub.productivity === 'distracting') d += sub.ms;
+            else n += sub.ms;
+        }
+        // Scale to the actual app total (subcats may not add up perfectly)
+        const scale = appTotalMs / subcatTotal;
+        return { prodMs: Math.round(p * scale), distMs: Math.round(d * scale), neutMs: Math.round(n * scale) };
+    }
+
+    const BROWSER_APP_NAMES = ['Google Chrome','Firefox','Microsoft Edge','Opera','Brave Browser','Safari','Vivaldi','Arc'];
+
+    // Build prod/dist/neut totals from top_apps + browser_subcategories.
+    // Browser apps are split proportionally via subcats rather than treated as a block.
+    function calcFocusTotals(topApps, browserSubcats) {
+        let prodMs = 0, distMs = 0, neutMs = 0;
+        for (const a of (topApps || [])) {
+            if (BROWSER_APP_NAMES.includes(a.app)) {
+                const split = browserSplitFromSubcats(a.total_ms, browserSubcats);
+                prodMs += split.prodMs; distMs += split.distMs; neutMs += split.neutMs;
+            } else {
+                const cls = classifyAppFromData(a.app, a.windows);
+                if (cls === 'productive') prodMs += a.total_ms;
+                else if (cls === 'distracting') distMs += a.total_ms;
+                else neutMs += a.total_ms;
+            }
+        }
+        return { prodMs, distMs, neutMs };
+    }
+
+    // ==================== PROJECT TAGGING ====================
+    function tagProject(icon, project) {
+        document.querySelectorAll('.proj-btn').forEach(b => { b.classList.remove('active-proj','border-amber-500','bg-amber-500/20'); });
+        event.target.closest('.proj-btn').classList.add('active-proj','border-amber-500','bg-amber-500/20');
+        fetch('/api/tag_project', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project,icon}) }).catch(()=>{});
+        document.getElementById('currentProjectBadge').textContent = `${icon} ${project}`;
+        document.getElementById('currentProjectBadge').className = 'text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 font-bold';
+        document.getElementById('stopProjectBtn').classList.remove('hidden');
+        const hdr = document.getElementById('projectBadgeHeader');
+        hdr.textContent = `${icon} ${project}`;
+        hdr.classList.remove('hidden'); hdr.classList.add('inline-flex');
+    }
+    function stopProject() {
+        document.querySelectorAll('.proj-btn').forEach(b => { b.classList.remove('active-proj','border-amber-500','bg-amber-500/20'); });
+        fetch('/api/tag_project', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project:'__stop__',icon:''}) }).catch(()=>{});
+        document.getElementById('currentProjectBadge').textContent = 'No project set';
+        document.getElementById('currentProjectBadge').className = 'text-xs px-2 py-1 rounded-full bg-gray-700 text-gray-400';
+        document.getElementById('stopProjectBtn').classList.add('hidden');
+        document.getElementById('projectBadgeHeader').classList.add('hidden');
+    }
+
+    // ==================== IDLE POPUP ====================
+    function selectIdleCat(btn, icon, cat) {
+        document.querySelectorAll('#idleCategoryGrid .idle-cat-btn').forEach(b => { b.classList.remove('border-amber-500','bg-amber-500/20'); b.classList.add('border-gray-600/50','bg-gray-700/50'); });
+        btn.classList.remove('border-gray-600/50','bg-gray-700/50'); btn.classList.add('border-amber-500','bg-amber-500/20');
+        selectedIdleCat = cat; selectedIdleIcon = icon; document.getElementById('idleSubmitBtn').disabled = false;
+    }
+    function showIdlePopup(startMs, endMs, durationMs) {
+        pendingIdlePeriod = { idle_start: startMs, idle_end: endMs, duration_ms: durationMs };
+        document.getElementById('idlePopupDuration').textContent = fmtDur(durationMs);
+        document.getElementById('idlePopupTime').textContent = `${fmtTime(startMs)} → ${fmtTime(endMs)}`;
+        document.getElementById('idleNotes').value = ''; selectedIdleCat = null; selectedIdleIcon = null;
+        document.getElementById('idleSubmitBtn').disabled = true;
+        document.querySelectorAll('#idleCategoryGrid .idle-cat-btn').forEach(b => { b.classList.remove('border-amber-500','bg-amber-500/20'); b.classList.add('border-gray-600/50','bg-gray-700/50'); });
+        const p = document.getElementById('idlePopup'); p.classList.remove('hidden'); p.classList.add('flex');
+    }
+    function submitIdleAnnotation() {
+        if (!selectedIdleCat || !pendingIdlePeriod) return;
+        fetch('/api/annotate_idle', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...pendingIdlePeriod, category:selectedIdleCat, category_icon:selectedIdleIcon, notes:document.getElementById('idleNotes').value.trim()}) }).catch(()=>{});
+        closeIdlePopup();
+    }
+    function skipIdleAnnotation() { closeIdlePopup(); }
+    function closeIdlePopup() { const p=document.getElementById('idlePopup'); p.classList.add('hidden'); p.classList.remove('flex'); pendingIdlePeriod=null; }
+
+    // ==================== CONNECTION ====================
+    let disconnectTimer = null;
+
+    async function tryConnect() {
+        try { const r=await fetch('/api/stats'); if(r.ok){stats=await r.json();onConnected();return true;} } catch(e){}
+        onDisconnected(); return false;
+    }
+    function onConnected() {
+        if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+        if(!connected){
+            connected=true;
+            const b=document.getElementById('connectionBanner');
+            b.className='bg-gradient-to-r from-green-900/60 to-emerald-900/60 border-b border-green-500/30 backdrop-blur-xl connected-pulse';
+            document.getElementById('connIcon').textContent='✅';
+            document.getElementById('connTitle').textContent='Monitor Connected';
+            document.getElementById('connDesc').innerHTML='Tracking every input + apps.';
+            document.getElementById('connActions').innerHTML='<span class="text-xs text-green-400 font-mono">LIVE</span>';
+            document.getElementById('modeIndicator').innerHTML='✅ LIVE';
+            document.getElementById('modeIndicator').className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[10px] font-bold';
+            setTimeout(()=>{ b.classList.add('hidden'); }, 2000);
+        }
+    }
+    function onDisconnected() {
+        connected=false;
+        if (disconnectTimer) return;
+        disconnectTimer = setTimeout(() => {
+            disconnectTimer = null;
+            if (!connected) {
+                const b=document.getElementById('connectionBanner');
+                b.className='bg-gradient-to-r from-red-900/80 to-orange-900/80 border-b border-red-500/30 backdrop-blur-xl';
+                b.classList.remove('hidden');
+                document.getElementById('connIcon').textContent='🔌';
+                document.getElementById('connTitle').textContent='Cannot Connect to monitor.py';
+                document.getElementById('connDesc').innerHTML='Make sure <code class="bg-red-800/50 px-1.5 rounded font-mono">monitor.py</code> is running.';
+                document.getElementById('connActions').innerHTML='<button onclick="tryConnect()" class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-xl text-sm font-bold transition-all">Retry</button>';
+                document.getElementById('modeIndicator').innerHTML='DISCONNECTED';
+                document.getElementById('modeIndicator').className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold';
+            }
+        }, 10000);
+    }
+
+    // ==================== POLLING ====================
+    async function pollStats() {
+        try { const r=await fetch('/api/stats'); if(r.ok){stats=await r.json(); if(!connected)onConnected();
+            const cur=stats.status; if((prevStatus==='idle'||prevStatus==='away')&&cur==='active'){const ip=stats.idle_periods||[];if(ip.length>0){const last=ip[ip.length-1];if(last.duration>60000)showIdlePopup(last.start,last.end,last.duration);}} prevStatus=cur;
+            updateDashboard();
+        } else { onDisconnected(); } } catch(e){ onDisconnected(); }
+    }
+    async function pollHistory() { try{const r=await fetch('/api/history');if(r.ok){history=await r.json();updateHeatmap();updateDailySummary();renderSparklines();renderPersonalRecords();renderPatterns();}}catch(e){} fetchAvailableDates(); }
+
+    // ==================== RENDER FUNCTIONS ====================
+    function updateDashboard() {
+        if (!stats) return; const s=stats;
+        document.getElementById('mouseMiles').textContent=s.mouse_distance_miles.toFixed(4);
+        document.getElementById('mouseFeet').textContent=s.mouse_distance_feet.toLocaleString();
+        document.getElementById('mousePx').textContent=s.mouse_distance_px.toLocaleString();
+        const activeMin=s.active_time_ms/60000;
+        document.getElementById('mouseSpeed').textContent=activeMin>0?(s.mouse_distance_feet/activeMin).toFixed(1):'0';
+        document.getElementById('scrollMiles').textContent=s.scroll_distance_miles.toFixed(4);
+        document.getElementById('scrollFeet').textContent=s.scroll_distance_feet.toLocaleString();
+        document.getElementById('scrollUpCount').textContent=s.scroll_up.toLocaleString();
+        document.getElementById('scrollDownCount').textContent=s.scroll_down.toLocaleString();
+        document.getElementById('currentSession').textContent=fmtDur(s.session_duration);
+        document.getElementById('sessionStart').textContent=fmtTime(s.session_start);
+        document.getElementById('activeToday').textContent=fmtDur(s.active_time_ms);
+        document.getElementById('idleToday').textContent=fmtDur(s.idle_time_ms);
+        const total=s.active_time_ms+s.idle_time_ms;
+        if(total>0){document.getElementById('activePercent').textContent=`${((s.active_time_ms/total)*100).toFixed(1)}% of tracked`;document.getElementById('idlePercent').textContent=`${((s.idle_time_ms/total)*100).toFixed(1)}% of tracked`;}
+        document.getElementById('totalInteractions').textContent=s.total_interactions.toLocaleString();
+        document.getElementById('quickKeys').textContent=s.keystrokes.toLocaleString();
+        document.getElementById('quickClicks').textContent=s.clicks.toLocaleString();
+        document.getElementById('quickScrolls').textContent=s.scrolls.toLocaleString();
+        document.getElementById('keystrokeCount').textContent=s.keystrokes.toLocaleString();
+        document.getElementById('kpmBadge').textContent=`${s.kpm} KPM`;
+        document.getElementById('peakKpm').textContent=s.peak_kpm;
+        document.getElementById('typingBurstCount').textContent=(s.typing_sessions||[]).length;
+
+        // Word count — estimated from space + enter key presses (each = one word boundary)
+        const keyCats=s.key_categories||{};
+        const spaceCount=(keyCats.space||0)+(keyCats.enter||0);
+        const wordCountEst=Math.max(0,spaceCount);
+        const letterCount=keyCats.letters||0;
+        const avgLen=wordCountEst>0?(letterCount/wordCountEst).toFixed(1):'—';
+        const activeMinutes=s.active_time_ms/60000;
+        const wpm=activeMinutes>0?Math.round(wordCountEst/activeMinutes):0;
+        document.getElementById('wordCount').textContent=wordCountEst.toLocaleString();
+        document.getElementById('wpmDisplay').textContent=wpm;
+        document.getElementById('wordSeparators').textContent=spaceCount.toLocaleString();
+        document.getElementById('avgWordLen').textContent=avgLen==='—'?'—':`~${avgLen} ch`;
+
+        document.getElementById('clickCount').textContent=s.clicks.toLocaleString();
+        document.getElementById('cpmBadge').textContent=`${s.cpm} CPM`;
+        document.getElementById('leftClicks').textContent=s.left_clicks.toLocaleString();
+        document.getElementById('rightClicks').textContent=s.right_clicks.toLocaleString();
+        document.getElementById('middleClicks').textContent=s.middle_clicks.toLocaleString();
+        document.getElementById('scrollCount').textContent=s.scrolls.toLocaleString();
+        document.getElementById('spmBadge').textContent=`${s.spm} SPM`;
+
+        // Key categories
+        const cats=s.key_categories||{}; const catEntries=Object.entries(cats).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+        const catIcons={letters:'🔤',numbers:'🔢',modifiers:'⌘',special:'✨',function:'🔧',navigation:'🧭',space:'⎵',enter:'↵',backspace:'⌫',other:'•'};
+        if(catEntries.length>0){document.getElementById('keyCategoryList').innerHTML=catEntries.map(([k,v])=>{const pct=s.keystrokes>0?Math.round((v/s.keystrokes)*100):0;return `<div class="flex items-center justify-between"><span class="text-gray-400">${catIcons[k]||'•'} ${k}</span><div class="flex items-center gap-2"><div class="w-16 bg-gray-800 rounded-full h-1.5"><div class="h-full rounded-full bg-indigo-500" style="width:${pct}%"></div></div><span class="text-indigo-400 font-bold w-10 text-right">${v.toLocaleString()}</span></div></div>`;}).join('');}
+
+        setIntensity('kbInt',Math.min(100,(s.kpm/150)*100));
+        setIntensity('msInt',Math.min(100,(s.cpm/60)*100));
+        setIntensity('scInt',Math.min(100,(s.spm/60)*100));
+        setIntensity('ovInt',Math.min(100,((s.kpm+s.cpm+s.spm)/200)*100));
+        updateStatus(s.status);
+
+        const activeRatio=total>0?s.active_time_ms/total:0;
+        // Score: 50% active ratio + 30% focus ratio (prod vs distracting) + 20% interaction density
+        const _sf=calcFocusTotals(s.top_apps||[],s.browser_subcategories||{});
+        const _sfTotal=_sf.prodMs+_sf.distMs+_sf.neutMs||1;
+        const _focusRatio=(_sf.prodMs-_sf.distMs*0.5)/_sfTotal; // reward productive, penalise distracting
+        const _focusScore=Math.max(0,Math.min(100,Math.round(50+_focusRatio*50)));
+        const _activeScore=Math.round(activeRatio*100);
+        const _inputScore=Math.min(100,Math.round((s.total_interactions/500)*100));
+        const score=Math.round(_activeScore*0.5+_focusScore*0.3+_inputScore*0.2);
+        document.getElementById('scoreValue').textContent=score;
+        document.getElementById('scoreCircle').style.strokeDashoffset=326.73-(score/100)*326.73;
+        // Update score ring colour based on value
+        const _sg=document.getElementById('scoreGrad');
+        if(score>=80){_sg.children[0].setAttribute('stop-color','#10b981');_sg.children[1].setAttribute('stop-color','#34d399');}
+        else if(score>=60){_sg.children[0].setAttribute('stop-color','#3b82f6');_sg.children[1].setAttribute('stop-color','#a855f7');}
+        else if(score>=40){_sg.children[0].setAttribute('stop-color','#f59e0b');_sg.children[1].setAttribute('stop-color','#f97316');}
+        else{_sg.children[0].setAttribute('stop-color','#ef4444');_sg.children[1].setAttribute('stop-color','#dc2626');}
+        const msg=score>=80?'🔥 Incredible focus!':score>=60?'👍 Good productivity':score>=40?'⚠️ Room for improvement':score>=20?'😴 Lots of idle time':'🚨 Very low activity';
+        // Procrastination alert in live overview
+        const _distMins=Math.round(_sf.distMs/60000);
+        const _procMsg=_distMins>=30?` · 🚫 ${_distMins}m distracting`:'';
+        document.getElementById('scoreMsg').textContent=msg+_procMsg;
+
+        // Goal progress bar
+        const _goalHrs=parseFloat(localStorage.getItem('dailyGoalHrs')||'6');
+        const _activeHrs=s.active_time_ms/3600000;
+        const _goalPct=Math.min(100,Math.round((_activeHrs/_goalHrs)*100));
+        document.getElementById('goalProgress').textContent=_activeHrs.toFixed(1);
+        document.getElementById('goalTarget').textContent=_goalHrs;
+        document.getElementById('goalBar').style.width=_goalPct+'%';
+        document.getElementById('goalBar').className='h-full rounded-full transition-all duration-500 '+(_goalPct>=100?'bg-green-500':_goalPct>=60?'bg-blue-500':'bg-blue-600');
+        // Focus mini-bars on score card
+        const _sfTotal2=_sf.prodMs+_sf.distMs+_sf.neutMs||1;
+        document.getElementById('scoreProdBar').style.width=Math.round((_sf.prodMs/_sfTotal2)*100)+'%';
+        document.getElementById('scoreDistBar').style.width=Math.round((_sf.distMs/_sfTotal2)*100)+'%';
+        document.getElementById('scoreProdTime').textContent=fmtDur(_sf.prodMs,true);
+        document.getElementById('scoreDistTime').textContent=fmtDur(_sf.distMs,true);
+        renderIdle(s.idle_periods||[]);
+        renderSleep(s.sleep_periods||[],s.total_sleep_ms||0);
+        renderAnnotations(s.idle_annotations||[]);
+        renderLog(s.activity_log||[]);
+        renderApps(s);
+        renderInsights(s);
+        renderDeepFocus(s);
+        renderTypingBursts(s);
+        checkPomodoro(s);
+
+        // Sync project badge
+        if(s.current_project){const hdr=document.getElementById('projectBadgeHeader');if(hdr){hdr.textContent=`${s.current_project_icon||'🏷️'} ${s.current_project}`;hdr.classList.remove('hidden');hdr.classList.add('inline-flex');}}
+    }
+
+    // ==================== RENDER FUNCTIONS ====================
+    function renderApps(s) {
+        const banner=document.getElementById('currentAppBanner');
+        if(!s.can_track_apps){banner.classList.add('hidden');document.getElementById('appSection').classList.add('hidden');document.getElementById('appChartSection').classList.add('hidden');return;}
+        document.getElementById('appSection').classList.remove('hidden');document.getElementById('appChartSection').classList.remove('hidden');
+        if(s.current_app){
+            banner.classList.remove('hidden');
+            document.getElementById('currentAppIcon').textContent=APP_ICONS[s.current_app]||'📱';
+            document.getElementById('currentAppName').textContent=s.current_app;
+            document.getElementById('currentAppWindow').textContent=s.current_window||'—';
+            const topApp=(s.top_apps||[]).find(a=>a.app===s.current_app);
+            document.getElementById('currentAppCategory').textContent=topApp?topApp.category:'Other';
+            // Browser sub-category badge
+            const subcatEl=document.getElementById('currentBrowserSubcat');
+            const BROWSER_NAMES=['Google Chrome','Firefox','Microsoft Edge','Opera','Brave Browser','Safari','Vivaldi','Arc'];
+            if(BROWSER_NAMES.includes(s.current_app) && s.current_browser_subcat){
+                const [subcat,icon,prod]=s.current_browser_subcat;
+                subcatEl.textContent=subcat;
+                subcatEl.classList.remove('hidden');
+            } else {
+                subcatEl.classList.add('hidden');
+            }
+        }else banner.classList.add('hidden');
+        const topApps=s.top_apps||[];const ac=document.getElementById('topAppsList');
+        document.getElementById('appCountBadge').textContent=`${topApps.length} app${topApps.length!==1?'s':''}`;
+        if(!topApps.length){ac.innerHTML='<div class="text-center text-gray-600 text-sm py-8">No app data yet</div>';}
+        else{const maxMs=topApps[0]?.total_ms||1;ac.innerHTML=topApps.map(app=>{const icon=APP_ICONS[app.app]||'📱';const pct=Math.round((app.total_ms/maxMs)*100);const totalPct=s.active_time_ms>0?Math.round((app.total_ms/s.active_time_ms)*100):0;const color=CAT_COLORS[app.category]||'gray';const prod=classifyAppFromData(app.app,app.windows);const prodBadge=prod==='productive'?'<span class="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-400">✅</span>':prod==='distracting'?'<span class="text-[9px] px-1 py-0.5 rounded bg-red-500/20 text-red-400">🚫</span>':'';const wHtml=(app.windows||[]).slice(0,5).map(w=>`<div class="flex items-center justify-between text-xs text-gray-400 pl-7"><span class="truncate flex-1 mr-2">📄 ${escHtml(w.title)}</span><span class="text-gray-500 whitespace-nowrap">${fmtDur(w.ms,true)}</span></div>`).join('');return `<div class="bg-gray-800/40 rounded-xl p-3 border border-gray-700/50"><div class="flex items-center justify-between mb-1.5"><div class="flex items-center gap-2 min-w-0"><span class="text-lg">${icon}</span><span class="font-semibold text-white text-sm truncate">${escHtml(app.app)}</span><span class="text-[10px] px-1.5 py-0.5 rounded-full bg-${color}-500/15 text-${color}-400">${app.category}</span>${prodBadge}</div><div class="text-right flex-shrink-0 ml-3"><span class="text-sm font-mono font-bold text-cyan-400">${fmtDur(app.total_ms,true)}</span><span class="text-xs text-gray-500 ml-1">${totalPct}%</span></div></div><div class="w-full bg-gray-700/50 rounded-full h-1.5 mb-1"><div class="app-bar h-full rounded-full bg-${color}-500/70" style="width:${pct}%"></div></div>${wHtml}</div>`;}).join('');}
+
+        // ---- Categories panel ----
+        const appCats=s.app_categories||{};
+        const browserSubcats=s.browser_subcategories||{};
+        const cc=document.getElementById('appCategoryList');
+        const cEntries=Object.entries(appCats).sort((a,b)=>b[1]-a[1]);
+        const cTotal=cEntries.reduce((a,[,v])=>a+v,0)||1;
+        const hasBrowserTime = 'Browsers' in appCats && Object.keys(browserSubcats).length > 0;
+
+        if(cEntries.length>0){
+            const catRows = cEntries.map(([cat,ms])=>{
+                const pct=Math.round((ms/cTotal)*100);
+                const icon=CAT_ICONS[cat]||'📦';
+                const color=CAT_COLORS[cat]||'gray';
+                const isExpanded = hasBrowserTime && cat === 'Browsers';
+                return `<div class="cat-row"><div class="flex items-center gap-2"><span class="text-sm">${icon}</span><span class="text-xs text-gray-300 flex-1">${cat}</span><div class="w-20 bg-gray-700 rounded-full h-1.5"><div class="h-full rounded-full bg-${color}-500/70" style="width:${pct}%"></div></div><span class="text-xs text-gray-400 w-14 text-right">${fmtDur(ms,true)}</span></div>${isExpanded ? renderBrowserSubcats(browserSubcats, ms) : ''}</div>`;
+            }).join('');
+            cc.innerHTML = catRows;
+        }
+
+        const switches=s.app_switches||[];const sc=document.getElementById('appSwitchTimeline');
+        if(switches.length>0){sc.innerHTML=switches.slice().reverse().slice(0,15).map(sw=>{const toIcon=APP_ICONS[sw.to_app]||'📱';return `<div class="flex items-center gap-1.5 text-[11px]"><span class="text-gray-600 font-mono">${fmtTime(sw.time)}</span><span>${toIcon}</span><span class="text-gray-400 truncate">${escHtml(sw.to_app)}</span></div>`;}).join('');}
+        updateAppChart(topApps);
+    }
+
+    function renderBrowserSubcats(subcats, totalBrowserMs) {
+        const entries = Object.entries(subcats);
+        if (!entries.length) return '';
+        const PROD_COLORS = { productive: 'green', distracting: 'red', neutral: 'yellow' };
+        const rows = entries.map(([name, data]) => {
+            const pct = totalBrowserMs > 0 ? Math.round((data.ms / totalBrowserMs) * 100) : 0;
+            const barPct = Math.round((data.ms / (entries[0][1].ms || 1)) * 100);
+            const prodColor = PROD_COLORS[data.productivity] || 'gray';
+            const prodDot = data.productivity === 'productive' ? '🟢' : data.productivity === 'distracting' ? '🔴' : '🟡';
+            return `<div class="flex items-center gap-2 pl-5">
+                <span class="text-xs">${data.icon}</span>
+                <span class="text-[11px] text-gray-400 flex-1 truncate">${name}</span>
+                <div class="w-16 bg-gray-700/60 rounded-full h-1"><div class="h-full rounded-full bg-blue-400/60" style="width:${barPct}%"></div></div>
+                <span title="${data.productivity}" class="text-[9px]">${prodDot}</span>
+                <span class="text-[11px] text-gray-500 w-12 text-right">${fmtDur(data.ms,true)}</span>
+            </div>`;
+        }).join('');
+        return `<div class="mt-2 space-y-1 border-l-2 border-blue-500/30 ml-2 pl-1">${rows}</div>`;
+    }
+    function renderAnnotations(a){const c=document.getElementById('annotationLog');document.getElementById('annotationCount').textContent=`${a.length} note${a.length!==1?'s':''}`;if(!a.length){c.innerHTML='<div class="text-center text-gray-600 text-sm py-8">Annotations appear when you return from idle</div>';return;}c.innerHTML=a.slice().reverse().slice(0,30).map(a=>`<div class="px-3 py-2 rounded-lg border border-amber-500/20 bg-amber-500/5"><div class="flex items-center gap-2 text-sm"><span>${a.category_icon}</span><span class="font-semibold text-amber-300">${a.category}</span><span class="text-xs text-gray-500 ml-auto font-mono">${fmtDur(a.duration_ms,true)}</span></div>${a.notes?`<p class="text-xs text-gray-400 mt-1 pl-6">${escHtml(a.notes)}</p>`:''}<p class="text-[10px] text-gray-600 pl-6 mt-0.5">${fmtTime(a.idle_start)} → ${fmtTime(a.idle_end)}</p></div>`).join('');}
+    function renderIdle(p){const c=document.getElementById('idleLog');document.getElementById('idleCount').textContent=`${p.length} break${p.length!==1?'s':''}`;if(!p.length){c.innerHTML='<div class="text-center text-gray-600 text-sm py-8">No idle periods yet</div>';return;}c.innerHTML=p.slice().reverse().slice(0,40).map(p=>{const away=p.duration>AWAY_THRESHOLD*1000;return `<div class="flex items-center justify-between px-3 py-2 rounded-lg border ${away?'border-red-500/30 bg-red-500/5':'border-yellow-500/30 bg-yellow-500/5'}"><div class="flex items-center gap-2"><span>${away?'☕':'💤'}</span><span class="text-sm text-gray-300">${fmtTime(p.start)} → ${fmtTime(p.end)}</span><span class="text-xs px-2 py-0.5 rounded-full ${away?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400'}">${away?'Away':'Idle'}</span></div><span class="text-sm font-mono font-bold text-gray-400">${fmtDur(p.duration)}</span></div>`;}).join('');}
+    function renderSleep(p,totalMs){const c=document.getElementById('sleepLog');const banner=document.getElementById('sleepBanner');document.getElementById('sleepCount').textContent=`${p.length} gap${p.length!==1?'s':''}`;if(!p.length){c.innerHTML='<div class="text-center text-gray-600 text-sm py-8">No sleep gaps ✅</div>';banner.classList.add('hidden');return;}banner.classList.remove('hidden');document.getElementById('sleepInfo').textContent=`${p.length} gap(s) where your PC was sleeping or off. NOT counted.`;document.getElementById('sleepExcluded').textContent=`${fmtDur(totalMs)} excluded`;c.innerHTML=p.slice().reverse().slice(0,40).map(p=>`<div class="flex items-center justify-between px-3 py-2 rounded-lg border border-blue-500/30 bg-blue-500/5"><div class="flex items-center gap-2"><span>💻</span><span class="text-sm text-gray-300">${fmtTime(p.start)} → ${fmtTime(p.end)}</span></div><span class="text-sm font-mono font-bold text-blue-400">${fmtDur(p.duration)}</span></div>`).join('');}
+    function renderLog(logs){const c=document.getElementById('activityLog');let f=logs.slice().reverse();if(logFilter!=='all')f=f.filter(l=>l.type===logFilter);if(!f.length){c.innerHTML='<div class="text-center text-gray-600 text-sm py-8">No matching entries</div>';return;}const colors={active:'border-green-500/30 bg-green-500/5',idle:'border-yellow-500/30 bg-yellow-500/5',break:'border-red-500/30 bg-red-500/5',typing:'border-indigo-500/30 bg-indigo-500/5',system:'border-blue-500/30 bg-blue-500/5'};c.innerHTML=f.slice(0,80).map(e=>`<div class="flex items-center gap-3 px-3 py-2 rounded-lg border ${colors[e.type]||colors.active} text-sm"><span class="text-gray-500 text-xs font-mono whitespace-nowrap">${fmtTime(e.time)}</span><span class="text-gray-300">${e.message}</span></div>`).join('');}
+    function setFilter(f){logFilter=f;document.querySelectorAll('.log-filter').forEach(b=>b.className='log-filter px-3 py-1 text-xs rounded-full bg-gray-800 text-gray-400 border border-gray-700');event.target.className='log-filter active-filter px-3 py-1 text-xs rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30';if(stats)renderLog(stats.activity_log||[]);}
+
+    function promptGoal(){
+        const cur=localStorage.getItem('dailyGoalHrs')||'6';
+        const val=prompt('Set daily active time goal (hours):',cur);
+        if(val&&!isNaN(val)&&parseFloat(val)>0){localStorage.setItem('dailyGoalHrs',parseFloat(val).toString());updateDashboard();}
+    }
+    function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+    function setIntensity(prefix,value){document.getElementById(prefix+'Bar').style.width=value+'%';const label=document.getElementById(prefix+'Label');const levels=[{min:75,text:'Peak 🔥',cls:'bg-green-500/20 text-green-400'},{min:50,text:'High',cls:'bg-green-500/20 text-green-400'},{min:25,text:'Medium',cls:'bg-yellow-500/20 text-yellow-400'},{min:5,text:'Low',cls:'bg-orange-500/20 text-orange-400'},{min:0,text:'Idle',cls:'bg-gray-700 text-gray-400'}];const level=levels.find(l=>value>=l.min);label.textContent=level.text;label.className=`text-xs px-3 py-1 rounded-full ${level.cls}`;}
+    function updateStatus(status){const dot=document.getElementById('statusDot'),text=document.getElementById('statusText'),card=document.getElementById('sessionCard');card.classList.remove('glow-green','glow-red','glow-yellow');if(status==='active'){dot.className='w-3 h-3 rounded-full bg-green-500 pulse-dot';text.textContent='Active';text.className='text-sm font-medium text-green-400';card.classList.add('glow-green');}else if(status==='idle'){dot.className='w-3 h-3 rounded-full bg-yellow-500 pulse-dot';text.textContent='Idle';text.className='text-sm font-medium text-yellow-400';card.classList.add('glow-yellow');}else{dot.className='w-3 h-3 rounded-full bg-red-500 pulse-dot';text.textContent='Away';text.className='text-sm font-medium text-red-400';card.classList.add('glow-red');}}
+
+    // ==================== CHARTS ====================
+    let hourlyChart,pieChart,inputChart,distChart,appChart;
+    const APP_CHART_COLORS=['rgba(6,182,212,0.7)','rgba(99,102,241,0.7)','rgba(168,85,247,0.7)','rgba(236,72,153,0.7)','rgba(34,197,94,0.7)','rgba(234,179,8,0.7)','rgba(249,115,22,0.7)','rgba(239,68,68,0.7)','rgba(14,165,233,0.7)','rgba(132,204,22,0.7)'];
+    function initCharts(){const hrs=Array.from({length:24},(_,i)=>`${i.toString().padStart(2,'0')}:00`);const d={responsive:true,maintainAspectRatio:false};hourlyChart=new Chart(document.getElementById('hourlyChart').getContext('2d'),{type:'bar',data:{labels:hrs,datasets:[{label:'Active (min)',data:new Array(24).fill(0),backgroundColor:'rgba(34,197,94,0.6)',borderRadius:4},{label:'Idle (min)',data:new Array(24).fill(0),backgroundColor:'rgba(239,68,68,0.4)',borderRadius:4}]},options:{...d,scales:{x:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280',font:{size:9}}},y:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280'}}},plugins:{legend:{labels:{color:'#9ca3af',boxWidth:12}}}}});pieChart=new Chart(document.getElementById('pieChart').getContext('2d'),{type:'doughnut',data:{labels:['Active','Idle','Away'],datasets:[{data:[1,0,0],backgroundColor:['rgba(34,197,94,0.8)','rgba(234,179,8,0.8)','rgba(239,68,68,0.8)'],borderWidth:0,hoverOffset:10}]},options:{...d,cutout:'65%',plugins:{legend:{position:'bottom',labels:{color:'#9ca3af',padding:15,boxWidth:12}},tooltip:{callbacks:{label:function(ctx){const secs=ctx.parsed;const h=Math.floor(secs/3600);const m=Math.floor((secs%3600)/60);const s=secs%60;let t='';if(h>0)t+=h+'h ';if(m>0||h>0)t+=m+'m ';t+=s+'s';return ` ${ctx.label}: ${t}`;}}}}}});inputChart=new Chart(document.getElementById('inputChart').getContext('2d'),{type:'bar',data:{labels:hrs,datasets:[{label:'Keystrokes',data:new Array(24).fill(0),backgroundColor:'rgba(99,102,241,0.7)',borderRadius:4},{label:'Clicks',data:new Array(24).fill(0),backgroundColor:'rgba(234,179,8,0.7)',borderRadius:4},{label:'Scrolls',data:new Array(24).fill(0),backgroundColor:'rgba(249,115,22,0.7)',borderRadius:4}]},options:{...d,scales:{x:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280',font:{size:9}}},y:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280'}}},plugins:{legend:{labels:{color:'#9ca3af',boxWidth:12}}}}});distChart=new Chart(document.getElementById('distChart').getContext('2d'),{type:'line',data:{labels:hrs,datasets:[{label:'Mouse (ft)',data:new Array(24).fill(0),borderColor:'rgba(99,102,241,0.8)',backgroundColor:'rgba(99,102,241,0.15)',fill:true,tension:0.3,pointRadius:2},{label:'Scroll (ft)',data:new Array(24).fill(0),borderColor:'rgba(249,115,22,0.8)',backgroundColor:'rgba(249,115,22,0.15)',fill:true,tension:0.3,pointRadius:2}]},options:{...d,scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280',font:{size:9}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280'}}},plugins:{legend:{labels:{color:'#9ca3af',boxWidth:12}}}}});appChart=new Chart(document.getElementById('appChart').getContext('2d'),{type:'bar',data:{labels:[],datasets:[{label:'Time (min)',data:[],backgroundColor:[],borderRadius:6,barThickness:24}]},options:{...d,indexAxis:'y',scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280'}},y:{grid:{display:false},ticks:{color:'#e5e7eb',font:{size:11}}}},plugins:{legend:{display:false}}}});}
+    let focusChart, focusPieChart;
+    function initFocusCharts(){
+        const hrs=Array.from({length:24},(_,i)=>`${i.toString().padStart(2,'0')}:00`);
+        const d={responsive:true,maintainAspectRatio:false};
+        const fmtSec=secs=>{const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60),s=secs%60;let t='';if(h>0)t+=h+'h ';if(m>0||h>0)t+=m+'m ';t+=s+'s';return t;};
+        focusChart=new Chart(document.getElementById('focusChart').getContext('2d'),{
+            type:'bar',
+            data:{labels:hrs,datasets:[
+                {label:'Productive (min)',data:new Array(24).fill(0),backgroundColor:'rgba(34,197,94,0.7)',borderRadius:3,stack:'focus'},
+                {label:'Distracting (min)',data:new Array(24).fill(0),backgroundColor:'rgba(239,68,68,0.6)',borderRadius:3,stack:'focus'},
+                {label:'Neutral (min)',data:new Array(24).fill(0),backgroundColor:'rgba(148,163,184,0.3)',borderRadius:3,stack:'focus'}
+            ]},
+            options:{...d,scales:{x:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280',font:{size:9}}},y:{stacked:true,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#6b7280'}}},plugins:{legend:{labels:{color:'#9ca3af',boxWidth:12}}}}
+        });
+        focusPieChart=new Chart(document.getElementById('focusPieChart').getContext('2d'),{
+            type:'doughnut',
+            data:{labels:['✅ Productive','🚫 Distracting','⚖️ Neutral'],datasets:[{data:[1,0,0],backgroundColor:['rgba(34,197,94,0.8)','rgba(239,68,68,0.8)','rgba(148,163,184,0.5)'],borderWidth:0,hoverOffset:10}]},
+            options:{...d,cutout:'65%',plugins:{legend:{position:'bottom',labels:{color:'#9ca3af',padding:12,boxWidth:12}},tooltip:{callbacks:{label:function(ctx){const secs=ctx.parsed;return ` ${ctx.label}: ${fmtSec(secs)}`;}}}}
+            }
+        });
+    }
+    function updateAppChart(t){if(!appChart||!t?.length)return;const t10=t.slice(0,10);appChart.data.labels=t10.map(a=>(APP_ICONS[a.app]||'📱')+' '+a.app);appChart.data.datasets[0].data=t10.map(a=>Math.round(a.total_ms/60000));appChart.data.datasets[0].backgroundColor=t10.map((_,i)=>APP_CHART_COLORS[i%APP_CHART_COLORS.length]);appChart.update('none');}
+    function updateCharts(){if(!stats||!hourlyChart)return;const s=stats;hourlyChart.data.datasets[0].data=s.hourly_active.map(ms=>Math.round((ms||0)/60000));hourlyChart.data.datasets[1].data=s.hourly_idle.map(ms=>Math.round((ms||0)/60000));hourlyChart.update('none');updateFocusCharts();const awayMs=(s.idle_periods||[]).filter(p=>p.duration>AWAY_THRESHOLD*1000).reduce((a,p)=>a+p.duration,0);const idleMs=Math.max(0,s.idle_time_ms-awayMs);pieChart.data.datasets[0].data=[Math.round(s.active_time_ms/1000),Math.round(idleMs/1000),Math.round(awayMs/1000)];pieChart.update('none');inputChart.data.datasets[0].data=s.hourly_keys;inputChart.data.datasets[1].data=s.hourly_clicks;inputChart.data.datasets[2].data=s.hourly_scrolls;inputChart.update('none');const dpi=s.monitor_dpi||96;distChart.data.datasets[0].data=s.hourly_mouse_dist.map(px=>Math.round((px/dpi/12)*10)/10);distChart.data.datasets[1].data=s.hourly_scroll_dist.map(px=>Math.round((px/dpi/12)*10)/10);distChart.update('none');}
+    function updateFocusCharts(){
+        if(!stats||!focusChart)return;
+        const s=stats;
+        // Build per-hour focus data by distributing browser subcats proportionally across hourly app usage
+        // We have hourly_active totals but not per-hour subcat breakdown from the server,
+        // so we use the day-level subcat ratios applied to each hour's active time as a best estimate
+        const {prodMs,distMs,neutMs}=calcFocusTotals(s.top_apps||[],s.browser_subcategories||{});
+        const appTotal=prodMs+distMs+neutMs||1;
+        const pRatio=prodMs/appTotal, dRatio=distMs/appTotal, nRatio=neutMs/appTotal;
+        const prodHr=s.hourly_active.map(ms=>Math.round(((ms||0)*pRatio)/60000));
+        const distHr=s.hourly_active.map(ms=>Math.round(((ms||0)*dRatio)/60000));
+        const neutHr=s.hourly_active.map(ms=>Math.round(((ms||0)*nRatio)/60000));
+        focusChart.data.datasets[0].data=prodHr;
+        focusChart.data.datasets[1].data=distHr;
+        focusChart.data.datasets[2].data=neutHr;
+        focusChart.update('none');
+        focusPieChart.data.datasets[0].data=[Math.round(prodMs/1000),Math.round(distMs/1000),Math.round(neutMs/1000)];
+        focusPieChart.update('none');
+    }
+    function computeStreaks(){
+        const THRESHOLD_MS = 30*60*1000; // 30 min active = counts as a day
+        const today = new Date().toISOString().split('T')[0];
+        const allDates = Object.keys(history).filter(k=>((history[k]?.active_time_ms||0)>=THRESHOLD_MS)).sort();
+        const totalActiveDays = allDates.length;
+        // Calculate current streak (consecutive days ending at today or yesterday)
+        let current = 0, best = 0, streak = 0;
+        for(let i=allDates.length-1;i>=0;i--){
+            const d=new Date(allDates[i]+'T12:00:00');
+            const prev=i>0?new Date(allDates[i-1]+'T12:00:00'):null;
+            if(i===allDates.length-1){
+                // Must be today or yesterday to count as current
+                const diff=(new Date(today+'T12:00:00')-d)/(86400000);
+                if(diff>1){current=0;}
+            }
+        }
+        // Simpler forward pass
+        let run=1;
+        for(let i=1;i<allDates.length;i++){
+            const a=new Date(allDates[i-1]+'T12:00:00'), b=new Date(allDates[i]+'T12:00:00');
+            const diff=(b-a)/86400000;
+            if(diff===1) run++; else run=1;
+            if(run>best) best=run;
+        }
+        if(allDates.length===1) best=1;
+        // Current streak: walk back from today
+        const todayD=new Date(today+'T12:00:00');
+        current=0;
+        for(let i=allDates.length-1;i>=0;i--){
+            const d=new Date(allDates[i]+'T12:00:00');
+            const expected=new Date(todayD); expected.setDate(expected.getDate()-current);
+            if(d.toISOString().split('T')[0]===expected.toISOString().split('T')[0]) current++;
+            else break;
+        }
+        document.getElementById('currentStreak').textContent=current;
+        document.getElementById('bestStreak').textContent=best;
+        document.getElementById('totalActiveDays').textContent=totalActiveDays;
+        // Flame emoji on current streak if ≥3
+        document.getElementById('currentStreak').textContent=(current>=3?'🔥':'')+current;
+    }
+    function updateHeatmap(){const c=document.getElementById('heatmap');let html='<div class="grid grid-cols-[auto_repeat(24,1fr)] gap-1 mb-1"><div class="text-xs text-gray-600 text-right pr-1 w-12"></div>';for(let h=0;h<24;h++)html+=`<div class="text-xs text-gray-600 text-center">${h.toString().padStart(2,'0')}</div>`;html+='</div>';for(let d=13;d>=0;d--){const date=new Date();date.setDate(date.getDate()-d);const key=date.toISOString().split('T')[0],dd=history[key];const dl=d===0?'Today':date.toLocaleDateString('en',{weekday:'short',day:'numeric'});html+=`<div class="grid grid-cols-[auto_repeat(24,1fr)] gap-1 items-center"><div class="text-xs text-gray-500 text-right pr-2 whitespace-nowrap w-12">${dl}</div>`;for(let h=0;h<24;h++){let intensity=0;if(dd?.hourly_active){const m=(dd.hourly_active[h]||0)/60000;if(m>=40)intensity=4;else if(m>=20)intensity=3;else if(m>=5)intensity=2;else if(m>0)intensity=1;}const colors=['bg-gray-800','bg-green-900','bg-green-700','bg-green-500','bg-green-400'];html+=`<div class="w-full aspect-square rounded-sm ${colors[intensity]}" title="${dl} ${h}:00"></div>`;}html+='</div>';}c.innerHTML=html;computeStreaks();}
+    // ==================== DAILY SUMMARY NAVIGATION ====================
+    let dayOffset = 0; // 0 = showing days ending at today
+    let availableDates = [];
+    let dayDetailDate = null, dayDetailData = null;
+
+    async function fetchAvailableDates() {
+        try { const r = await fetch('/api/available_dates'); if (r.ok) { const d = await r.json(); availableDates = d.dates || []; document.getElementById('availableDatesInfo').textContent = `${availableDates.length} day${availableDates.length!==1?'s':''} of data available`; } } catch(e) {}
+    }
+
+    function navigateDays(delta) {
+        // delta > 0 means go further into the past, delta < 0 means come back toward today
+        dayOffset = Math.max(0, dayOffset + delta);
+        updateDailySummary();
+    }
+    function goToToday() { dayOffset = 0; updateDailySummary(); }
+
+    function updateDailySummary(){
+        const c=document.getElementById('dailySummary');
+        const daysToShow = 7;
+        const startOffset = dayOffset + daysToShow - 1;
+        let html='';
+        const startDate = new Date(); startDate.setDate(startDate.getDate() - startOffset);
+        const endDate = new Date(); endDate.setDate(endDate.getDate() - dayOffset);
+        document.getElementById('dayRangeLabel').textContent = `${startDate.toLocaleDateString('en',{month:'short',day:'numeric'})} — ${endDate.toLocaleDateString('en',{month:'short',day:'numeric'})}`;
+        // Disable next buttons if at today
+        document.getElementById('nextDayBtn').disabled = dayOffset <= 0;
+        document.getElementById('nextWeekBtn').disabled = dayOffset <= 0;
+        document.getElementById('nextDayBtn').classList.toggle('opacity-40', dayOffset <= 0);
+        document.getElementById('nextWeekBtn').classList.toggle('opacity-40', dayOffset <= 0);
+
+        for(let i=daysToShow-1;i>=0;i--){
+            const d = dayOffset + i;
+            const date=new Date();date.setDate(date.getDate()-d);
+            const key=date.toISOString().split('T')[0],dd=history[key],isToday=d===0;
+            const dl=isToday?'Today':date.toLocaleDateString('en',{weekday:'short',month:'short',day:'numeric'});
+            const active=dd?dd.active_time_ms:0,idle=dd?dd.idle_time_ms:0,ttl=active+idle;
+            const pct=ttl>0?Math.round((active/ttl)*100):0;
+            const keys=dd?.keystrokes||0,clicks=dd?.clicks||0;
+            const hasData = active > 0 || idle > 0;
+            const topApp = dd?.top_apps?.[0]?.app || '';
+            const dlBtns = hasData ? `
+                <div class="day-dl-btns hidden absolute bottom-2 right-2 flex gap-1 z-10">
+                    <button onclick="event.stopPropagation();quickDownloadCSV('${key}')" title="Download CSV" class="px-1.5 py-0.5 bg-blue-600 hover:bg-blue-500 rounded text-[9px] font-bold text-white transition-colors">CSV</button>
+                    <button onclick="event.stopPropagation();quickDownloadMD('${key}')" title="Download Markdown" class="px-1.5 py-0.5 bg-purple-600 hover:bg-purple-500 rounded text-[9px] font-bold text-white transition-colors">MD</button>
+                </div>` : '';
+            html+=`<div onclick="openDayDetail('${key}')" onmouseenter="this.querySelector('.day-dl-btns')&&this.querySelector('.day-dl-btns').classList.remove('hidden')" onmouseleave="this.querySelector('.day-dl-btns')&&this.querySelector('.day-dl-btns').classList.add('hidden')" class="relative p-3 rounded-xl cursor-pointer transition-all hover:scale-[1.03] hover:shadow-lg ${isToday?'bg-blue-500/10 border-2 border-blue-500/40':hasData?'bg-gray-800/50 border border-gray-700/50 hover:border-gray-500/50':'bg-gray-800/20 border border-gray-700/30 opacity-60'}">
+                ${dlBtns}
+                <p class="text-xs font-medium ${isToday?'text-blue-400':'text-gray-400'}">${dl}</p>
+                <p class="text-lg font-bold mt-1 ${isToday?'text-white':hasData?'text-gray-300':'text-gray-600'}">${hasData?fmtDur(active,true):'—'}</p>
+                <div class="w-full bg-gray-700 rounded-full h-1.5 mt-2"><div class="h-full rounded-full ${pct>60?'bg-green-500':pct>30?'bg-yellow-500':'bg-red-500'}" style="width:${pct}%"></div></div>
+                <p class="text-xs text-gray-500 mt-1">${hasData?pct+'% active':'No data'}</p>
+                <p class="text-[10px] text-gray-600 truncate">${hasData?'⌨️'+keys.toLocaleString()+' 🖱️'+clicks.toLocaleString():''}${topApp?' · '+topApp:''}</p>
+                ${isToday?'<div class="text-[9px] text-blue-400 font-bold mt-1 text-center">● LIVE</div>':''}
+            </div>`;
+        }
+        c.innerHTML=html;
+    }
+
+    // ==================== DAY DETAIL MODAL ====================
+    async function openDayDetail(dateStr) {
+        dayDetailDate = dateStr;
+        const modal = document.getElementById('dayDetailModal');
+        modal.classList.remove('hidden'); modal.classList.add('flex');
+        document.getElementById('dayDetailContent').innerHTML = '<div class="text-center text-gray-500 py-12"><div class="text-4xl mb-3 animate-spin">⏳</div>Loading day data...</div>';
+        const dateObj = new Date(dateStr + 'T12:00:00');
+        const dayName = dateObj.toLocaleDateString('en',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+        document.getElementById('dayDetailTitle').textContent = `📅 ${dayName}`;
+        const isToday = dateStr === new Date().toISOString().split('T')[0];
+        document.getElementById('dayDetailSubtitle').textContent = isToday ? '● Live — Today' : dateStr;
+
+        // Sync date picker
+        const picker = document.getElementById('ddDatePicker');
+        if (picker) { picker.value = dateStr; picker.max = new Date().toISOString().split('T')[0]; }
+
+        // Update prev/next button states based on available dates
+        const today = new Date().toISOString().split('T')[0];
+        const allDates = availableDates.length ? availableDates : [today];
+        const sortedDates = [...allDates].sort();
+        const currentIdx = sortedDates.indexOf(dateStr);
+        const prevBtn = document.getElementById('ddPrevBtn');
+        const nextBtn = document.getElementById('ddNextBtn');
+        if (prevBtn) prevBtn.disabled = currentIdx <= 0;
+        if (nextBtn) nextBtn.disabled = dateStr >= today;
+        if (prevBtn) prevBtn.classList.toggle('opacity-40', currentIdx <= 0);
+        if (nextBtn) nextBtn.classList.toggle('opacity-40', dateStr >= today);
+
+        try {
+            const r = await fetch(`/api/day/${dateStr}`);
+            if (r.ok) {
+                dayDetailData = await r.json();
+                // Always store so download buttons work
+                window.currentDetailData = dayDetailData;
+                window.currentDetailDate = dateStr;
+                if (dayDetailData.error) {
+                    document.getElementById('dayDetailContent').innerHTML = `<div class="text-center text-gray-500 py-12"><div class="text-4xl mb-3">📭</div><p class="text-lg font-bold">${dayDetailData.error}</p><p class="text-sm mt-2">No activity was recorded on this date.</p><p class="text-xs text-gray-600 mt-4">Date: ${dateStr}</p></div>`;
+                } else {
+                    renderDayDetail(dayDetailData, dateStr);
+                }
+            } else {
+                document.getElementById('dayDetailContent').innerHTML = `<div class="text-center text-red-400 py-12">Server error ${r.status}</div>`;
+            }
+        } catch(e) {
+            document.getElementById('dayDetailContent').innerHTML = `<div class="text-center text-red-400 py-12">Failed to load: ${e.message}</div>`;
+        }
+    }
+
+    function closeDayDetail() { const m=document.getElementById('dayDetailModal'); m.classList.add('hidden'); m.classList.remove('flex'); dayDetailData=null; }
+
+    function prevDayDetail() {
+        if (!dayDetailDate) return;
+        // Try to find the previous date in availableDates first
+        if (availableDates.length > 0) {
+            const sorted = [...availableDates].sort();
+            const idx = sorted.indexOf(dayDetailDate);
+            if (idx > 0) { openDayDetail(sorted[idx - 1]); return; }
+            // If not in list, find the nearest earlier date in availableDates
+            const earlier = sorted.filter(d => d < dayDetailDate);
+            if (earlier.length > 0) { openDayDetail(earlier[earlier.length - 1]); return; }
+        }
+        // Fallback: step back one calendar day
+        const d = new Date(dayDetailDate + 'T12:00:00');
+        d.setDate(d.getDate() - 1);
+        openDayDetail(d.toISOString().split('T')[0]);
+    }
+    function nextDayDetail() {
+        if (!dayDetailDate) return;
+        const today = new Date().toISOString().split('T')[0];
+        if (dayDetailDate >= today) return;
+        // Try to find the next date in availableDates first
+        if (availableDates.length > 0) {
+            const sorted = [...availableDates].sort();
+            const idx = sorted.indexOf(dayDetailDate);
+            if (idx >= 0 && idx < sorted.length - 1) { openDayDetail(sorted[idx + 1]); return; }
+            // If not in list, find nearest later date
+            const later = sorted.filter(d => d > dayDetailDate && d <= today);
+            if (later.length > 0) { openDayDetail(later[0]); return; }
+        }
+        // Fallback: step forward one calendar day
+        const d = new Date(dayDetailDate + 'T12:00:00');
+        d.setDate(d.getDate() + 1);
+        const next = d.toISOString().split('T')[0];
+        if (next <= today) openDayDetail(next);
+    }
+    function jumpToDate(dateStr) {
+        if (!dateStr) return;
+        openDayDetail(dateStr);
+    }
+
+    function renderDayDetail(s, dateStr) {
+        const total = s.active_time_ms + s.idle_time_ms;
+        const aPct = total > 0 ? Math.round((s.active_time_ms/total)*100) : 0;
+        const topApps = s.top_apps || [];
+        const annotations = s.idle_annotations || [];
+        const projSummary = s.project_summary || {};
+        const projEntries = Object.entries(projSummary).sort((a,b)=>b[1].total_ms-a[1].total_ms);
+        const hourlyMin = (s.hourly_active||[]).map(ms=>Math.round((ms||0)/60000));
+        const peakHour = hourlyMin.indexOf(Math.max(...hourlyMin));
+
+        // Productivity classification — browsers split by subcategory
+        const {prodMs, distMs, neutMs} = calcFocusTotals(topApps, s.browser_subcategories||{});
+        const focusTotal = prodMs+distMs+neutMs||1;
+        const focusPct = Math.round((prodMs/focusTotal)*100);
+        const distPct = Math.round((distMs/focusTotal)*100);
+        const activeRatio = total>0?s.active_time_ms/total:0;
+        const score = Math.round(activeRatio*70+Math.min(30,(s.total_interactions||0)/500*30));
+        const sE = score>=80?'🔥':score>=60?'👍':score>=40?'⚠️':'😴';
+
+        let html = '';
+
+        // Score + Overview row
+        html += `<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-gradient-to-br from-blue-950 to-indigo-950 border border-blue-500/30 rounded-xl p-4 text-center">
+                <p class="text-xs text-blue-300">Score</p>
+                <p class="text-4xl font-black text-blue-400">${sE} ${score}</p>
+                <p class="text-[10px] text-blue-400/60">/100</p>
+            </div>
+            <div class="bg-gradient-to-br from-green-950 to-emerald-950 border border-green-500/30 rounded-xl p-4 text-center">
+                <p class="text-xs text-green-300">Active</p>
+                <p class="text-2xl font-bold text-green-400">${fmtDur(s.active_time_ms,true)}</p>
+                <p class="text-[10px] text-green-400/60">${aPct}% of tracked</p>
+            </div>
+            <div class="bg-gradient-to-br from-red-950 to-orange-950 border border-red-500/30 rounded-xl p-4 text-center">
+                <p class="text-xs text-red-300">Idle</p>
+                <p class="text-2xl font-bold text-red-400">${fmtDur(s.idle_time_ms,true)}</p>
+                <p class="text-[10px] text-red-400/60">${100-aPct}% of tracked</p>
+            </div>
+            <div class="bg-gray-800/50 border border-gray-700 rounded-xl p-4 text-center">
+                <p class="text-xs text-gray-400">Interactions</p>
+                <p class="text-2xl font-bold text-white">${(s.total_interactions||0).toLocaleString()}</p>
+                <p class="text-[10px] text-gray-500">⌨️${(s.keystrokes||0).toLocaleString()} 🖱️${(s.clicks||0).toLocaleString()} 🔄${(s.scrolls||0).toLocaleString()}</p>
+            </div>
+        </div>`;
+
+        // Focus breakdown
+        html += `<div class="grid grid-cols-3 gap-3">
+            <div class="bg-green-500/5 border border-green-500/20 rounded-xl p-3 text-center"><p class="text-xs text-green-400">✅ Productive</p><p class="text-xl font-bold text-green-400">${fmtDur(prodMs,true)}</p><p class="text-[10px] text-green-400/60">${focusPct}%</p></div>
+            <div class="bg-red-500/5 border border-red-500/20 rounded-xl p-3 text-center"><p class="text-xs text-red-400">🚫 Distracting</p><p class="text-xl font-bold text-red-400">${fmtDur(distMs,true)}</p><p class="text-[10px] text-red-400/60">${distPct}%</p></div>
+            <div class="bg-gray-500/5 border border-gray-500/20 rounded-xl p-3 text-center"><p class="text-xs text-gray-400">⚖️ Neutral</p><p class="text-xl font-bold text-gray-400">${fmtDur(neutMs,true)}</p><p class="text-[10px] text-gray-400/60">${100-focusPct-distPct}%</p></div>
+        </div>`;
+
+        // Distance
+        html += `<div class="grid grid-cols-2 gap-3">
+            <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3 flex items-center gap-3"><span class="text-2xl">🏃</span><div><p class="text-xs text-indigo-400">Mouse Distance</p><p class="text-lg font-bold text-indigo-300">${(s.mouse_distance_miles||0).toFixed(4)} mi</p><p class="text-[10px] text-indigo-400/60">${(s.mouse_distance_feet||0).toLocaleString()} ft</p></div></div>
+            <div class="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-3 flex items-center gap-3"><span class="text-2xl">📜</span><div><p class="text-xs text-yellow-400">Scroll Distance</p><p class="text-lg font-bold text-yellow-300">${(s.scroll_distance_miles||0).toFixed(4)} mi</p><p class="text-[10px] text-yellow-400/60">${(s.scroll_distance_feet||0).toLocaleString()} ft</p></div></div>
+        </div>`;
+
+        // Hourly sparkline
+        html += `<div class="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+            <p class="text-xs text-gray-400 mb-2">⚡ Hourly Activity (peak: ${peakHour.toString().padStart(2,'0')}:00 — ${hourlyMin[peakHour]}min)</p>
+            <div class="flex items-end gap-[2px] h-16">
+                ${hourlyMin.map((m,i) => {
+                    const maxM = Math.max(...hourlyMin,1);
+                    const h = Math.max(2, Math.round((m/maxM)*64));
+                    const clr = m>=30?'bg-green-500':m>=15?'bg-green-600':m>=5?'bg-green-700':m>0?'bg-green-900':'bg-gray-800';
+                    return `<div class="flex-1 ${clr} rounded-t-sm" style="height:${h}px" title="${i.toString().padStart(2,'0')}:00 — ${m}min"></div>`;
+                }).join('')}
+            </div>
+            <div class="flex gap-[2px] mt-1">${Array.from({length:24},(_,i)=>`<div class="flex-1 text-center text-[7px] text-gray-600">${i%3===0?i.toString().padStart(2,'0'):''}</div>`).join('')}</div>
+        </div>`;
+
+        // Top Apps
+        if (topApps.length) {
+            const maxAppMs = topApps[0]?.total_ms || 1;
+            html += `<div class="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+                <p class="text-xs text-gray-400 mb-3">📱 Top Applications (${topApps.length})</p>
+                <div class="space-y-2 max-h-60 overflow-y-auto pr-1">${topApps.slice(0,10).map(a => {
+                    const icon = APP_ICONS[a.app]||'📱';
+                    const pct = Math.round((a.total_ms/maxAppMs)*100);
+                    const prod = classifyAppFromData(a.app,a.windows);
+                    const badge = prod==='productive'?'✅':prod==='distracting'?'🚫':'';
+                    const winsHtml = (a.windows||[]).slice(0,3).map(w=>`<span class="text-[10px] text-gray-500 block pl-6 truncate">📄 ${escHtml(w.title)} (${fmtDur(w.ms,true)})</span>`).join('');
+                    return `<div><div class="flex items-center gap-2"><span>${icon}</span><span class="text-sm font-medium text-white flex-1 truncate">${escHtml(a.app)} ${badge}</span><span class="text-xs font-mono text-cyan-400">${fmtDur(a.total_ms,true)}</span></div><div class="w-full bg-gray-700 rounded-full h-1 mt-1"><div class="h-full rounded-full bg-cyan-500/60" style="width:${pct}%"></div></div>${winsHtml}</div>`;
+                }).join('')}</div>
+            </div>`;
+        }
+
+        // Projects
+        if (projEntries.length) {
+            html += `<div class="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+                <p class="text-xs text-amber-400 mb-3">🏷️ Project Time (${projEntries.length})</p>
+                <div class="space-y-1.5">${projEntries.map(([name,data]) => {
+                    const maxP = projEntries[0][1].total_ms||1;
+                    const pct = Math.round((data.total_ms/maxP)*100);
+                    return `<div class="flex items-center gap-2"><span>${data.icon}</span><span class="text-xs text-gray-300 flex-1 truncate">${escHtml(name)}</span><div class="w-20 bg-gray-700 rounded-full h-1.5"><div class="h-full rounded-full bg-amber-500/70" style="width:${pct}%"></div></div><span class="text-xs text-amber-400 font-mono">${fmtDur(data.total_ms,true)}</span></div>`;
+                }).join('')}</div>
+            </div>`;
+        }
+
+        // Annotations
+        if (annotations.length) {
+            html += `<div class="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+                <p class="text-xs text-amber-400 mb-3">📝 Away Log (${annotations.length})</p>
+                <div class="space-y-1.5 max-h-40 overflow-y-auto">${annotations.map(a =>
+                    `<div class="flex items-center gap-2 text-xs"><span>${a.category_icon}</span><span class="text-amber-300 font-medium">${a.category}</span><span class="text-gray-500 ml-auto font-mono">${fmtDur(a.duration_ms,true)}</span>${a.notes?`<span class="text-gray-500 truncate max-w-[200px]">— ${escHtml(a.notes)}</span>`:''}</div>`
+                ).join('')}</div>
+            </div>`;
+        }
+
+        // Input stats
+        html += `<div class="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+            <p class="text-xs text-gray-400 mb-2">⌨️ Input Details</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center text-xs">
+                <div><p class="text-gray-500">Keystrokes</p><p class="text-lg font-bold text-indigo-400">${(s.keystrokes||0).toLocaleString()}</p><p class="text-gray-600">Peak: ${s.peak_kpm||0} KPM</p></div>
+                <div><p class="text-gray-500">Clicks</p><p class="text-lg font-bold text-yellow-400">${(s.clicks||0).toLocaleString()}</p><p class="text-gray-600">L:${s.left_clicks||0} R:${s.right_clicks||0} M:${s.middle_clicks||0}</p></div>
+                <div><p class="text-gray-500">Scrolls</p><p class="text-lg font-bold text-orange-400">${(s.scrolls||0).toLocaleString()}</p><p class="text-gray-600">↑${s.scroll_up||0} ↓${s.scroll_down||0}</p></div>
+                <div><p class="text-gray-500">Mouse Moves</p><p class="text-lg font-bold text-gray-400">${(s.mouse_moves||0).toLocaleString()}</p></div>
+            </div>
+        </div>`;
+
+        document.getElementById('dayDetailContent').innerHTML = html;
+    }
+
+    // Quick download from daily summary cards (no modal needed)
+    async function quickDownloadMD(dateStr) {
+        try {
+            const r = await fetch(`/api/day/${dateStr}`);
+            if (!r.ok) return alert(`Failed to load data for ${dateStr}`);
+            const data = await r.json();
+            if (data.error) return alert(`No data for ${dateStr}: ${data.error}`);
+            window.currentDetailData = data;
+            window.currentDetailDate = dateStr;
+            generateDayReport(data, dateStr);
+        } catch(e) { alert('Failed to download: ' + e.message); }
+    }
+    async function quickDownloadCSV(dateStr) {
+        try {
+            const r = await fetch(`/api/day/${dateStr}`);
+            if (!r.ok) return alert(`Failed to load data for ${dateStr}`);
+            const data = await r.json();
+            if (data.error) return alert(`No data for ${dateStr}: ${data.error}`);
+            window.currentDetailData = data;
+            window.currentDetailDate = dateStr;
+            exportDayCSV();
+        } catch(e) { alert('Failed to download: ' + e.message); }
+    }
+
+    // Export for the currently viewed historical day
+    function exportDayObsidian() {
+        const data = window.currentDetailData;
+        const date = window.currentDetailDate;
+        if (!data) return alert('No data loaded yet — please open a day first.');
+        if (data.error) return alert('No data for this day: ' + data.error);
+        generateDayReport(data, date);
+    }
+
+    function generateDayReport(s, dateStr) {
+        const dateObj = new Date(dateStr + 'T12:00:00');
+        const dayName = dateObj.toLocaleDateString('en',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+        const total=s.active_time_ms+s.idle_time_ms;
+        const aPct=total>0?((s.active_time_ms/total)*100).toFixed(1):0;
+        const activeRatio=total>0?s.active_time_ms/total:0;
+        const score=Math.round(activeRatio*70+Math.min(30,((s.total_interactions||0)/500)*30));
+        const sE=score>=80?'🔥':score>=60?'👍':score>=40?'⚠️':'😴';const stars=starRating(score);
+        const topApps=s.top_apps||[];
+        const {prodMs,distMs,neutMs}=calcFocusTotals(topApps,s.browser_subcategories||{});
+        const focusTotal=prodMs+distMs+neutMs||1;const focusPct=Math.round((prodMs/focusTotal)*100);const distPct2=Math.round((distMs/focusTotal)*100);
+        const _fmkc=s.key_categories||{};const _fmwc=Math.max(0,(_fmkc.space||0)+(_fmkc.enter||0));const _fmactMin=(s.active_time_ms||0)/60000;const _fmwpm=_fmactMin>0?Math.round(_fmwc/_fmactMin):0;let md=`---\ntitle: "🖥️ Daily Activity — ${dateStr}"\ndate: ${dateStr}\ntags: [productivity, daily-report, activity-tracking]\nproductivity_score: ${score}\nfocus_percent: ${focusPct}\ndistraction_percent: ${distPct2}\nactive_minutes: ${Math.round(s.active_time_ms/60000)}\nkeystrokes: ${s.keystrokes||0}\nwords_typed: ${_fmwc}\nwpm: ${_fmwpm}\nclicks: ${s.clicks||0}\nmouse_miles: ${s.mouse_distance_miles||0}\ntop_app: "${(topApps[0]?.app||'N/A')}"\n---\n\n`;
+        md+=`# 🖥️ Daily Activity Report\n## 📅 ${dayName}\n\n---\n\n`;
+        md+=`> [!abstract] 🎯 Focus Dashboard\n> \n> ### ${sE} Score: **${score}/100** ${stars}\n> \`${makeBar(score)}\` **${score}%**\n> \n`;
+        md+=`> | ✅ Productive | 🚫 Distracted | ⚖️ Neutral | 💤 Idle |\n> |--------------|--------------|----------|--------|\n`;
+        md+=`> | **${fmtDur(prodMs,true)}** (${focusPct}%) | **${fmtDur(distMs,true)}** (${distPct2}%) | **${fmtDur(neutMs,true)}** | **${fmtDur(s.idle_time_ms,true)}** |\n> \n`;
+        md+=`> \`✅ ${makeBar(focusPct,15)}\` Productive\n> \`🚫 ${makeBar(distPct2,15)}\` Distracting\n\n`;
+        const distractApps=topApps.filter(a=>classifyAppFromData(a.app,a.windows)==='distracting');
+        if(distMs>60000){md+=`> [!danger] 🚫 Procrastination Alert — ${fmtDur(distMs,true)} wasted\n> \n`;distractApps.forEach(a=>{md+=`> - ${APP_ICONS[a.app]||'📱'} **${mdSafe(a.app)}** — **${fmtDur(a.total_ms,true)}**\n`;(a.windows||[]).slice(0,3).forEach(w=>md+=`>   - 📄 ${mdSafe(w.title)} (${fmtDur(w.ms,true)})\n`);});md+=`> \n> *💡 Consider using a website blocker or setting specific browsing times*\n\n`;}
+        md+=`---\n\n`;
+        const hourlyMin=(s.hourly_active||[]).map(ms=>Math.round((ms||0)/60000));const peakHour=hourlyMin.indexOf(Math.max(...hourlyMin));
+        md+=`## ⚡ Hourly Activity\n\n\`\`\`\n${sparkline(hourlyMin)}  ← Activity (00→23)\n\`\`\`\n\n> 🏆 Peak: **${peakHour.toString().padStart(2,'0')}:00** (${hourlyMin[peakHour]} min)\n\n`;
+        md+=`\`\`\`mermaid\nxychart-beta\n    title "Active Minutes by Hour"\n    x-axis ["${Array.from({length:24},(_,i)=>i.toString().padStart(2,'0')).join('","')}"]\n    y-axis "Minutes" 0 --> 60\n    bar [${hourlyMin.join(',')}]\n\`\`\`\n\n---\n\n`;
+        const projSummary=s.project_summary||{};const projEntries=Object.entries(projSummary);
+        if(projEntries.length){md+=`## 🏷️ Project Time Tracking\n\n`;md+=`> [!example] 🏷️ ${projEntries.length} projects\n> \n> | # | Project | Time | Sessions | Visual |\n> |---|---------|------|----------|--------|\n`;const projTotal=projEntries.reduce((a,[,v])=>a+v.total_ms,0)||1;projEntries.sort((a,b)=>b[1].total_ms-a[1].total_ms).forEach(([name,data],i)=>{const pct=Math.round((data.total_ms/projTotal)*100);md+=`> | ${medal(i)} | ${data.icon} **${mdSafe(name)}** | **${fmtDur(data.total_ms,true)}** | ${data.sessions}x | \`${makeBar(pct,10)}\` |\n`;});md+='\n';md+=`\`\`\`mermaid\npie title "🏷️ Time by Project"\n`;projEntries.forEach(([name,data])=>md+=`    "${mdSafe(name)}" : ${Math.round(data.total_ms/60000)}\n`);md+=`\`\`\`\n\n---\n\n`;}
+        if(topApps.length){md+=`## 📱 Application Usage\n\n`;md+=`\`\`\`mermaid\npie title "📱 Time by App"\n`;topApps.slice(0,8).forEach(a=>md+=`    "${mdSafe(a.app)}" : ${Math.round(a.total_ms/60000)}\n`);md+=`\`\`\`\n\n`;
+        md+=`> [!example] 📱 Top Applications\n> \n> | # | App | Category | Focus | Time | Visual |\n> |---|-----|----------|-------|------|--------|\n`;topApps.forEach((a,i)=>{const pct=s.active_time_ms>0?Math.round((a.total_ms/s.active_time_ms)*100):0;const prod=classifyAppFromData(a.app,a.windows);const focBadge=prod==='productive'?'✅':prod==='distracting'?'🚫':'⚖️';md+=`> | ${medal(i)} | ${APP_ICONS[a.app]||'📱'} **${mdSafe(a.app)}** | ${a.category} | ${focBadge} | **${fmtDur(a.total_ms,true)}** | \`${makeBar(pct,10)}\` |\n`;});md+='\n';
+        md+=`### 📄 Top Windows & Tabs\n\n`;topApps.slice(0,5).forEach(a=>{if(a.windows?.length){const maxWinMs=Math.max(...a.windows.map(w=>w.ms),1);md+=`> [!info]- ${APP_ICONS[a.app]||'📱'} **${mdSafe(a.app)}** — ${a.windows.length} window${a.windows.length!==1?'s':''} · Total: **${fmtDur(a.total_ms,true)}**\n> \n> | # | Window / Tab | Time | % | Activity |\n> |---|-------------|------|---|----------|\n`;a.windows.forEach((w,wi)=>{const wPct=a.total_ms>0?Math.round((w.ms/a.total_ms)*100):0;md+=`> | ${medal(wi)} | 📄 ${mdSafe(w.title)} | **${fmtDur(w.ms,true)}** | ${wPct}% | \`${makeBar(Math.round((w.ms/maxWinMs)*100),8)}\` |\n`;});md+='\n';}});}
+        md+=`---\n\n`;
+        // App Categories section
+        const appCats=s.app_categories||{};const catEntries=Object.entries(appCats).sort((a,b)=>b[1]-a[1]);
+        if(catEntries.length){
+            const catTotal=catEntries.reduce((a,[,v])=>a+v,0)||1;
+            md+=`## 🏷️ Time by Category\n\n`;
+            md+=`\`\`\`mermaid\npie title "🏷️ Time by Category"\n`;
+            catEntries.forEach(([cat,ms])=>md+=`    "${mdSafe(cat)}" : ${Math.round(ms/60000)}\n`);
+            md+=`\`\`\`\n\n`;
+            md+=`> [!example] 🏷️ Category Breakdown\n> \n> | Category | Time | % | Visual |\n> |----------|------|---|--------|\n`;
+            catEntries.forEach(([cat,ms])=>{const pct=Math.round((ms/catTotal)*100);const icon=({'Browsers':'🌐','Development':'💻','Office':'📄','Communication':'💬','Productivity':'📋','Media':'🎵','Design':'🎨','Terminal':'⬛','Remote':'🖥️','Research':'🔬','Other':'📦'})[cat]||'📦';md+=`> | ${icon} **${cat}** | **${fmtDur(ms,true)}** | ${pct}% | \`${makeBar(pct,10)}\` |\n`;});
+            md+='\n';
+            // Browser sub-categories
+            const bsub=s.browser_subcategories||{};const bsubEntries=Object.entries(bsub);
+            if(bsubEntries.length){
+                const bTotal=bsubEntries.reduce((a,[,v])=>a+v.ms,0)||1;
+                const prodColor={'productive':'✅','distracting':'🚫','neutral':'⚖️'};
+                md+=`### 🌐 Browser Activity Breakdown\n\n`;
+                md+=`> [!info] 🌐 How browser time was spent\n> \n> | Sub-Category | Time | % | Productivity | Visual |\n> |-------------|------|---|-------------|--------|\n`;
+                bsubEntries.forEach(([name,d])=>{const pct=Math.round((d.ms/bTotal)*100);md+=`> | ${d.icon} **${mdSafe(name)}** | **${fmtDur(d.ms,true)}** | ${pct}% | ${prodColor[d.productivity]||'⚖️'} | \`${makeBar(pct,10)}\` |\n`;});
+                md+='\n';
+                md+=`\`\`\`mermaid\npie title "🌐 Browser Time by Activity"\n`;
+                bsubEntries.forEach(([name,d])=>md+=`    "${mdSafe(name)}" : ${Math.round(d.ms/60000)}\n`);
+                md+=`\`\`\`\n\n`;
+            }
+            md+=`---\n\n`;
+        }
+        const annotations=s.idle_annotations||[];if(annotations.length){md+=`## 📝 Where Was I? — Away Log\n\n> [!warning] 📝 ${annotations.length} away period${annotations.length!==1?'s':''}\n> \n> | Time | Duration | Activity | Notes |\n> |------|----------|----------|-------|\n`;annotations.forEach(a=>md+=`> | ${fmtTime(a.idle_start)}→${fmtTime(a.idle_end)} | **${fmtDur(a.duration_ms,true)}** | ${a.category_icon} ${a.category} | ${mdSafe(a.notes)||'—'} |\n`);md+='\n';}
+        const _dkc=s.key_categories||{};const _dwc=Math.max(0,(_dkc.space||0)+(_dkc.enter||0));const _dal=_dwc>0?((_dkc.letters||0)/_dwc).toFixed(1):"—";const _dactMin=(s.active_time_ms||0)/60000;const _dwpm=_dactMin>0?Math.round(_dwc/_dactMin):0;md+=`## ⌨️ Input Statistics\n\n> [!tip] 🎯 Interactions\n> \n> | Metric | Value | Detail |\n> |--------|-------|--------|\n> | ⌨️ Keys | **${(s.keystrokes||0).toLocaleString()}** | Peak: ${s.peak_kpm||0} KPM |\n> | 📝 Words | **${_dwc.toLocaleString()}** | ${_dwpm} WPM · avg ~${_dal} ch |\n> | 🖱️ Clicks | **${(s.clicks||0).toLocaleString()}** | L:${s.left_clicks||0} R:${s.right_clicks||0} M:${s.middle_clicks||0} |\n> | 🔄 Scrolls | **${(s.scrolls||0).toLocaleString()}** | ↑${s.scroll_up||0} ↓${s.scroll_down||0} |\n> | 🏃 Mouse | **${(s.mouse_distance_miles||0).toFixed(4)} mi** | ${(s.mouse_distance_feet||0).toLocaleString()} ft |\n> | 📜 Scroll | **${(s.scroll_distance_miles||0).toFixed(4)} mi** | ${(s.scroll_distance_feet||0).toLocaleString()} ft |\n> ${(()=>{const _sw=(s.app_switches||[]).slice().sort((a,b)=>a.ts-b.ts);let _fb=null,_bs=null,_ba=null,_bm=0;for(let _i=0;_i<_sw.length;_i++){const _s=_sw[_i];const _p=classifyAppFromData(_s.to,[]);if(_p==='productive'){if(!_bs){_bs=_s.ts;_ba=_s.to;}const _e=_i+1<_sw.length?_sw[_i+1].ts:Date.now();_bm=_e-_bs;}else{if(_bm>0&&(!_fb||_bm>_fb.duration)){_fb={duration:_bm,app:_ba};}_bs=null;_bm=0;}}if(_bm>0&&(!_fb||_bm>_fb.duration))_fb={duration:_bm,app:_ba};return _fb?`| 🧠 Deep Focus | **${fmtDur(_fb.duration,true)}** | in ${mdSafe(_fb.app||'—')} |`:'';})()}\n> ${(()=>{const _tb=(s.typing_sessions||[]).slice().sort((a,b)=>b.kpm-a.kpm)[0];return _tb?`| ⌨️ Best Burst | **${_tb.kpm} KPM** | ${fmtDur(_tb.duration,true)} in ${mdSafe(_tb.app||'—')} |`:'';})()}\n\n`;
+        md+=`---\n\n## 📝 Reflection\n\n> [!quote] 💭 How was this day?\n> \n> - [ ] Was I focused?\n> - [ ] What went well?\n> - [ ] What distracted me?\n\n`;
+        md+=`---\n*🔒 Generated by [[PC Activity Monitor]] · ${dateStr} · ${sE} Score: ${score}*\n`;
+        showMd(md,`Activity ${dateStr}.md`,`💎 Report — ${dateStr}`);
+    }
+
+    function exportDayCSV() {
+        const s = window.currentDetailData;
+        const dateStr = window.currentDetailDate;
+        if (!s) return alert('No data loaded yet — please open a day first.');
+        if (s.error) return alert('No data for this day: ' + s.error);
+
+        let csv='Metric,Value\n';
+        const _csvkc=s.key_categories||{};const _csvwc=Math.max(0,(_csvkc.space||0)+(_csvkc.enter||0));const _csvactMin=(s.active_time_ms||0)/60000;const _csvwpm=_csvactMin>0?Math.round(_csvwc/_csvactMin):0;const _csvavgl=_csvwc>0?((_csvkc.letters||0)/_csvwc).toFixed(1):'—';csv+=`Date,${dateStr}\nKeystrokes,${s.keystrokes||0}\nWords Typed,${_csvwc}\nWPM,${_csvwpm}\nAvg Word Length (chars),${_csvavgl}\nClicks,${s.clicks||0}\nScrolls,${s.scrolls||0}\nMouse Miles,${s.mouse_distance_miles||0}\nScroll Miles,${s.scroll_distance_miles||0}\nActive Ms,${s.active_time_ms}\nIdle Ms,${s.idle_time_ms}\n`;
+
+        csv+='\nTop Apps\nApp,Minutes,Category,Productivity\n';
+        (s.top_apps||[]).forEach(a=>{
+            const prod=classifyAppFromData(a.app,a.windows);
+            csv+=`"${a.app}",${Math.round(a.total_ms/60000)},${a.category},${prod}\n`;
+        });
+
+        csv+='\nApp Categories\nCategory,Minutes\n';
+        Object.entries(s.app_categories||{}).forEach(([cat,ms])=>csv+=`${cat},${Math.round(ms/60000)}\n`);
+
+        const bsub=s.browser_subcategories||{};
+        if(Object.keys(bsub).length){
+            csv+='\nBrowser Sub-Categories\nSub-Category,Minutes,Productivity\n';
+            Object.entries(bsub).forEach(([name,d])=>csv+=`"${name}",${Math.round(d.ms/60000)},${d.productivity}\n`);
+        }
+
+        csv+='\nProject Tags\nProject,Minutes\n';
+        Object.entries(s.project_summary||{}).forEach(([p,d])=>csv+=`"${p}",${Math.round(d.total_ms/60000)}\n`);
+
+        csv+='\nSleep/Off Gaps\nStart,End,Duration\n';
+        (s.sleep_periods||[]).forEach(p=>csv+=`${fmtTime(p.start)},${fmtTime(p.end)},${fmtDur(p.duration)}\n`);
+
+        const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`activity-${dateStr}.csv`;a.click();
+    }
+
+    // ==================== EXPORTS ====================
+    function exportCSV(){
+        if(!stats)return alert('No data');
+        const s=stats;
+        let csv='Metric,Value\n';
+        const _todkc=s.key_categories||{};const _todwc=Math.max(0,(_todkc.space||0)+(_todkc.enter||0));const _todactMin=s.active_time_ms/60000;const _todwpm=_todactMin>0?Math.round(_todwc/_todactMin):0;const _todavgl=_todwc>0?((_todkc.letters||0)/_todwc).toFixed(1):'—';csv+=`Keystrokes,${s.keystrokes}\nWords Typed,${_todwc}\nWPM,${_todwpm}\nAvg Word Length (chars),${_todavgl}\nClicks,${s.clicks}\nScrolls,${s.scrolls}\nMouse Miles,${s.mouse_distance_miles}\nScroll Miles,${s.scroll_distance_miles}\nActive Ms,${s.active_time_ms}\nIdle Ms,${s.idle_time_ms}\n`;
+
+        csv+='\nTop Apps\nApp,Minutes,Category,Productivity\n';
+        (s.top_apps||[]).forEach(a=>{
+            const prod=classifyAppFromData(a.app,a.windows);
+            csv+=`"${a.app}",${Math.round(a.total_ms/60000)},${a.category},${prod}\n`;
+        });
+
+        csv+='\nApp Categories\nCategory,Minutes\n';
+        Object.entries(s.app_categories||{}).forEach(([cat,ms])=>csv+=`${cat},${Math.round(ms/60000)}\n`);
+
+        const bsub=s.browser_subcategories||{};
+        if(Object.keys(bsub).length){
+            csv+='\nBrowser Sub-Categories\nSub-Category,Minutes,Productivity\n';
+            Object.entries(bsub).forEach(([name,d])=>csv+=`"${name}",${Math.round(d.ms/60000)},${d.productivity}\n`);
+        }
+
+        csv+='\nProject Tags\nProject,Minutes\n';
+        Object.entries(s.project_summary||{}).forEach(([p,d])=>csv+=`"${p}",${Math.round(d.total_ms/60000)}\n`);
+
+        const blob=new Blob([csv],{type:'text/csv'});
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=`activity-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+    }
+
+    // ==================== HELPERS ====================
+    function makeBar(p,l=20){const f=Math.round((p/100)*l);return '█'.repeat(f)+'░'.repeat(l-f);}
+    function sparkline(a){const chars='▁▂▃▄▅▆▇█';const max=Math.max(...a,1);return a.map(v=>chars[Math.min(Math.floor((v/max)*8),7)]).join('');}
+    function starRating(s){const f=Math.floor(s/20);const h=(s%20)>=10?1:0;return '⭐'.repeat(f)+(h?'✨':'')+'☆'.repeat(5-f-h);}
+    function medal(i){return i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`;}
+    function mdSafe(s){return (s||'').replace(/\|/g,'∣').replace(/\n/g,' ').replace(/\r/g,'');}
+    function fmtDur(ms,short){const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;if(short)return h>0?`${h}h ${m}m`:m>0?`${m}m`:`${sec}s`;return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;}
+    function fmtTime(ts){return new Date(ts).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+    document.addEventListener('keydown',e=>{
+        if(e.key==='Escape'){closeMd();closeIdlePopup();closeDayDetail();}
+        if(e.key==='t'||e.key==='T'){
+            // T shortcut — scroll to typing burst timeline
+            const el=document.getElementById('typingBurstTimeline');
+            if(el){switchTab('overview');setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'center'}),100);}
+        }
+        if(e.key==='p'||e.key==='P'){
+            // P shortcut — set pomodoro interval
+            const cur=localStorage.getItem('pomodoroMins')||'50';
+            const val=prompt('Pomodoro interval (minutes before break reminder):',cur);
+            if(val&&!isNaN(val)&&parseFloat(val)>0){localStorage.setItem('pomodoroMins',parseFloat(val).toString());}
+        }
+    });
+
+    // ==================== OBSIDIAN EXPORT ====================
+    function exportObsidian(){if(!stats)return alert('No data');const s=stats,today=new Date().toISOString().split('T')[0];const dayName=new Date().toLocaleDateString('en',{weekday:'long',year:'numeric',month:'long',day:'numeric'});const total=s.active_time_ms+s.idle_time_ms;const aPct=total>0?((s.active_time_ms/total)*100).toFixed(1):0;const activeRatio=total>0?s.active_time_ms/total:0;const score=Math.round(activeRatio*70+Math.min(30,(s.total_interactions/500)*30));const sE=score>=80?'🔥':score>=60?'👍':score>=40?'⚠️':'😴';const stars=starRating(score);
+    // Productivity breakdown
+    const topApps=s.top_apps||[];const {prodMs,distMs,neutMs}=calcFocusTotals(topApps,s.browser_subcategories||{});const focusTotal=prodMs+distMs+neutMs||1;const focusPct=Math.round((prodMs/focusTotal)*100);const distPct=Math.round((distMs/focusTotal)*100);
+    const _obkc2=s.key_categories||{};const _obwc2=Math.max(0,(_obkc2.space||0)+(_obkc2.enter||0));const _obactMin2=s.active_time_ms/60000;const _obwpm2=_obactMin2>0?Math.round(_obwc2/_obactMin2):0;let md=`---\ntitle: "🖥️ Daily Activity — ${today}"\ndate: ${today}\ntags: [productivity, daily-report, activity-tracking]\nproductivity_score: ${score}\nfocus_percent: ${focusPct}\ndistraction_percent: ${distPct}\nactive_minutes: ${Math.round(s.active_time_ms/60000)}\nkeystrokes: ${s.keystrokes}\nwords_typed: ${_obwc2}\nwpm: ${_obwpm2}\nclicks: ${s.clicks}\nmouse_miles: ${s.mouse_distance_miles}\ntop_app: "${(topApps[0]?.app||'N/A')}"\ncurrent_project: "${s.current_project||'None'}"\n---\n\n`;
+    md+=`# 🖥️ Daily Activity Report\n## 📅 ${dayName}\n\n---\n\n`;
+    // Focus Hero
+    md+=`> [!abstract] 🎯 Focus Dashboard\n> \n> ### ${sE} Score: **${score}/100** ${stars}\n> \`${makeBar(score)}\` **${score}%**\n> \n`;
+    md+=`> | ✅ Productive | 🚫 Distracted | ⚖️ Neutral | 💤 Idle |\n> |--------------|--------------|----------|--------|\n`;
+    md+=`> | **${fmtDur(prodMs,true)}** (${focusPct}%) | **${fmtDur(distMs,true)}** (${distPct}%) | **${fmtDur(neutMs,true)}** | **${fmtDur(s.idle_time_ms,true)}** |\n> \n`;
+    md+=`> \`✅ ${makeBar(focusPct,15)}\` Productive\n> \`🚫 ${makeBar(distPct,15)}\` Distracting\n\n`;
+    // Procrastination insights
+    const distractApps=topApps.filter(a=>classifyAppFromData(a.app,a.windows)==='distracting');
+    if(distMs>60000){md+=`> [!danger] 🚫 Procrastination Alert — ${fmtDur(distMs,true)} wasted\n> \n`;distractApps.forEach(a=>{const wins=(a.windows||[]).slice(0,3);md+=`> - ${APP_ICONS[a.app]||'📱'} **${mdSafe(a.app)}** — **${fmtDur(a.total_ms,true)}**\n`;wins.forEach(w=>md+=`>   - 📄 ${mdSafe(w.title)} (${fmtDur(w.ms,true)})\n`);});md+=`> \n> *💡 Consider using a website blocker or setting specific browsing times*\n\n`;}
+    md+=`---\n\n`;
+    // Sparkline
+    const hourlyMin=s.hourly_active.map(ms=>Math.round((ms||0)/60000));const peakHour=hourlyMin.indexOf(Math.max(...hourlyMin));
+    md+=`## ⚡ Hourly Activity\n\n\`\`\`\n${sparkline(hourlyMin)}  ← Activity (00→23)\n\`\`\`\n\n> 🏆 Peak: **${peakHour.toString().padStart(2,'0')}:00** (${hourlyMin[peakHour]} min)\n\n`;
+    md+=`\`\`\`mermaid\nxychart-beta\n    title "Active Minutes by Hour"\n    x-axis ["${Array.from({length:24},(_,i)=>i.toString().padStart(2,'0')).join('","')}"]\n    y-axis "Minutes" 0 --> 60\n    bar [${hourlyMin.join(',')}]\n\`\`\`\n\n`;
+    md+=`---\n\n`;
+    // Project Time
+    const projSummary=s.project_summary||{};const projEntries=Object.entries(projSummary);
+    if(projEntries.length){md+=`## 🏷️ Project Time Tracking\n\n`;md+=`> [!example] 🏷️ ${projEntries.length} projects tracked today\n> \n> | # | Project | Time | Sessions | Visual |\n> |---|---------|------|----------|--------|\n`;const projTotal=projEntries.reduce((a,[,v])=>a+v.total_ms,0)||1;projEntries.sort((a,b)=>b[1].total_ms-a[1].total_ms).forEach(([name,data],i)=>{const pct=Math.round((data.total_ms/projTotal)*100);md+=`> | ${medal(i)} | ${data.icon} **${mdSafe(name)}** | **${fmtDur(data.total_ms,true)}** | ${data.sessions}x | \`${makeBar(pct,10)}\` |\n`;});md+='\n';
+    md+=`\`\`\`mermaid\npie title "🏷️ Time by Project"\n`;projEntries.forEach(([name,data])=>md+=`    "${mdSafe(name)}" : ${Math.round(data.total_ms/60000)}\n`);md+=`\`\`\`\n\n`;md+=`---\n\n`;}
+    // Apps
+    if(topApps.length){md+=`## 📱 Application Usage\n\n`;md+=`\`\`\`mermaid\npie title "📱 Time by App"\n`;topApps.slice(0,8).forEach(a=>md+=`    "${mdSafe(a.app)}" : ${Math.round(a.total_ms/60000)}\n`);md+=`\`\`\`\n\n`;
+    md+=`> [!example] 📱 Top Applications\n> \n> | # | App | Category | Focus | Time | Visual |\n> |---|-----|----------|-------|------|--------|\n`;topApps.forEach((a,i)=>{const pct=s.active_time_ms>0?Math.round((a.total_ms/s.active_time_ms)*100):0;const prod=classifyAppFromData(a.app,a.windows);const focBadge=prod==='productive'?'✅':prod==='distracting'?'🚫':'⚖️';md+=`> | ${medal(i)} | ${APP_ICONS[a.app]||'📱'} **${mdSafe(a.app)}** | ${a.category} | ${focBadge} | **${fmtDur(a.total_ms,true)}** | \`${makeBar(pct,10)}\` |\n`;});md+='\n';
+    // Windows per app
+    md+=`### 📄 Top Windows & Tabs\n\n`;topApps.slice(0,5).forEach(a=>{if(a.windows?.length){const maxWinMs=Math.max(...a.windows.map(w=>w.ms),1);md+=`> [!info]- ${APP_ICONS[a.app]||'📱'} **${mdSafe(a.app)}** — ${a.windows.length} window${a.windows.length!==1?'s':''} · Total: **${fmtDur(a.total_ms,true)}**\n> \n> | # | Window / Tab | Time | % | Activity |\n> |---|-------------|------|---|----------|\n`;a.windows.forEach((w,wi)=>{const wPct=a.total_ms>0?Math.round((w.ms/a.total_ms)*100):0;md+=`> | ${medal(wi)} | 📄 ${mdSafe(w.title)} | **${fmtDur(w.ms,true)}** | ${wPct}% | \`${makeBar(Math.round((w.ms/maxWinMs)*100),8)}\` |\n`;});md+='\n';}});}
+    md+=`---\n\n`;
+    // App categories + browser sub-categories
+    const appCatsLive=s.app_categories||{};const catEntriesLive=Object.entries(appCatsLive).sort((a,b)=>b[1]-a[1]);
+    if(catEntriesLive.length){
+        const catTotalLive=catEntriesLive.reduce((a,[,v])=>a+v,0)||1;
+        md+=`## 🏷️ Time by Category\n\n`;
+        md+=`\`\`\`mermaid\npie title "🏷️ Time by Category"\n`;
+        catEntriesLive.forEach(([cat,ms])=>md+=`    "${mdSafe(cat)}" : ${Math.round(ms/60000)}\n`);
+        md+=`\`\`\`\n\n`;
+        md+=`> [!example] 🏷️ Category Breakdown\n> \n> | Category | Time | % | Visual |\n> |----------|------|---|--------|\n`;
+        catEntriesLive.forEach(([cat,ms])=>{const pct=Math.round((ms/catTotalLive)*100);const icon=({'Browsers':'🌐','Development':'💻','Office':'📄','Communication':'💬','Productivity':'📋','Media':'🎵','Design':'🎨','Terminal':'⬛','Remote':'🖥️','Research':'🔬','Other':'📦'})[cat]||'📦';md+=`> | ${icon} **${cat}** | **${fmtDur(ms,true)}** | ${pct}% | \`${makeBar(pct,10)}\` |\n`;});
+        md+='\n';
+        const bsubLive=s.browser_subcategories||{};const bsubEntriesLive=Object.entries(bsubLive);
+        if(bsubEntriesLive.length){
+            const bTotalLive=bsubEntriesLive.reduce((a,[,v])=>a+v.ms,0)||1;
+            const prodColor={'productive':'✅','distracting':'🚫','neutral':'⚖️'};
+            md+=`### 🌐 Browser Activity Breakdown\n\n`;
+            md+=`> [!info] 🌐 How browser time was spent\n> \n> | Sub-Category | Time | % | Productivity | Visual |\n> |-------------|------|---|-------------|--------|\n`;
+            bsubEntriesLive.forEach(([name,d])=>{const pct=Math.round((d.ms/bTotalLive)*100);md+=`> | ${d.icon} **${mdSafe(name)}** | **${fmtDur(d.ms,true)}** | ${pct}% | ${prodColor[d.productivity]||'⚖️'} | \`${makeBar(pct,10)}\` |\n`;});
+            md+='\n';
+            md+=`\`\`\`mermaid\npie title "🌐 Browser Time by Activity"\n`;
+            bsubEntriesLive.forEach(([name,d])=>md+=`    "${mdSafe(name)}" : ${Math.round(d.ms/60000)}\n`);
+            md+=`\`\`\`\n\n`;
+        }
+        md+=`---\n\n`;
+    }
+    // Annotations
+    const annotations=s.idle_annotations||[];if(annotations.length){md+=`## 📝 Where Was I? — Away Log\n\n> [!warning] 📝 ${annotations.length} away period${annotations.length!==1?'s':''}\n> \n> | Time | Duration | Activity | Notes |\n> |------|----------|----------|-------|\n`;annotations.forEach(a=>md+=`> | ${fmtTime(a.idle_start)}→${fmtTime(a.idle_end)} | **${fmtDur(a.duration_ms,true)}** | ${a.category_icon} ${a.category} | ${mdSafe(a.notes)||'—'} |\n`);md+='\n';}
+    // Input stats
+    const _obskc=s.key_categories||{};const _obswc=Math.max(0,(_obskc.space||0)+(_obskc.enter||0));const _obsavgl=_obswc>0?((_obskc.letters||0)/_obswc).toFixed(1):"—";const _obsactMin=s.active_time_ms/60000;const _obswpm=_obsactMin>0?Math.round(_obswc/_obsactMin):0;    const _obsSw=(s.app_switches||[]).slice().sort((a,b)=>a.ts-b.ts);let _obsFB=null,_obsBS=null,_obsBA=null,_obsBM=0;for(let _oi=0;_oi<_obsSw.length;_oi++){const _osw=_obsSw[_oi];const _op=classifyAppFromData(_osw.to,[]);if(_op==='productive'){if(!_obsBS){_obsBS=_osw.ts;_obsBA=_osw.to;}const _oe=_oi+1<_obsSw.length?_obsSw[_oi+1].ts:Date.now();_obsBM=_oe-_obsBS;}else{if(_obsBM>0&&(!_obsFB||_obsBM>_obsFB.duration)){_obsFB={duration:_obsBM,app:_obsBA};}_obsBS=null;_obsBM=0;}}
+    if(_obsBM>0&&(!_obsFB||_obsBM>_obsFB.duration))_obsFB={duration:_obsBM,app:_obsBA};
+    const _obsFocusLine=_obsFB?`| 🧠 Deep Focus | **${fmtDur(_obsFB.duration,true)}** | in ${mdSafe(_obsFB.app||'—')} |\n`:'';
+    const _obsTopBurst=(s.typing_sessions||[]).slice().sort((a,b)=>b.kpm-a.kpm)[0];
+    const _obsBurstLine=_obsTopBurst?`| ⌨️ Best Burst | **${_obsTopBurst.kpm} KPM** | ${fmtDur(_obsTopBurst.duration,true)} in ${mdSafe(_obsTopBurst.app||'—')} |\n`:""
+    md+=`## ⌨️ Input Statistics\n\n> [!tip] 🎯 Interactions\n> \n> | Metric | Value | Detail |\n> |--------|-------|--------|\n> | ⌨️ Keys | **${s.keystrokes.toLocaleString()}** | Peak: ${s.peak_kpm} KPM |\n> | 📝 Words | **${_obswc.toLocaleString()}** | ${_obswpm} WPM · avg ~${_obsavgl} ch |\n> | 🖱️ Clicks | **${s.clicks.toLocaleString()}** | L:${s.left_clicks} R:${s.right_clicks} M:${s.middle_clicks} |\n> | 🔄 Scrolls | **${s.scrolls.toLocaleString()}** | ↑${s.scroll_up} ↓${s.scroll_down} |\n> | 🏃 Mouse | **${s.mouse_distance_miles.toFixed(4)} mi** | ${s.mouse_distance_feet.toLocaleString()} ft |\n> | 📜 Scroll | **${s.scroll_distance_miles.toFixed(4)} mi** | ${s.scroll_distance_feet.toLocaleString()} ft |\n> ${_obsFocusLine}> ${_obsBurstLine}\n`;
+    md+=`---\n\n`;
+    // Insights
+    md+=`## 💡 Insights\n\n> [!success] 🌟 Highlights\n`;md+=`> - 🏆 Peak hour: **${peakHour.toString().padStart(2,'0')}:00** (${hourlyMin[peakHour]} min)\n`;if(topApps.length)md+=`> - 📱 Top app: **${topApps[0].app}** (${fmtDur(topApps[0].total_ms,true)})\n`;md+=`> - ✅ Productive: **${fmtDur(prodMs,true)}** (${focusPct}%)\n`;if(distMs>0)md+=`> - 🚫 Distracted: **${fmtDur(distMs,true)}** (${distPct}%) — ${distractApps.map(a=>a.app).join(', ')}\n`;md+='\n';
+    // Reflection
+    md+=`---\n\n## 📝 Reflection\n\n> [!quote] 💭 How was today?\n> \n> - [ ] Was I focused?\n> - [ ] What went well?\n> - [ ] What distracted me?\n> - [ ] Tomorrow I will:\n\n`;
+    md+=`---\n*🔒 Generated by [[PC Activity Monitor]] · ${today} · ${sE} Score: ${score}*\n`;
+    showMd(md,`Activity ${today}.md`,'💎 Daily Report');}
+
+    // ==================== WEEKLY EXPORT ====================
+    function exportWeekly(){generateMultiDayReport(7,'Weekly');}
+
+    // ==================== FORTNIGHTLY EXPORT ====================
+    function exportFortnightly(){generateMultiDayReport(14,'Fortnightly');}
+
+    function generateMultiDayReport(days,label){
+        if(!stats)return alert('No data');const today=new Date().toISOString().split('T')[0];let tA=0,tI=0,tK=0,tC=0,tS=0,dCount=0;const dailyData=[];
+        let tW=0;for(let d=days-1;d>=0;d--){const date=new Date();date.setDate(date.getDate()-d);const key=date.toISOString().split('T')[0],dd=history[key];if(dd&&((dd.active_time_ms||0)>0)){tA+=dd.active_time_ms||0;tI+=dd.idle_time_ms||0;tK+=dd.keystrokes||0;tC+=dd.clicks||0;tS+=dd.scrolls||0;const _mkc=dd.key_categories||{};const _mwc=Math.max(0,(_mkc.space||0)+(_mkc.enter||0));tW+=_mwc;dCount++;dailyData.push({date:key,dl:d===0?'Today':date.toLocaleDateString('en',{weekday:'short',day:'numeric'}),active:dd.active_time_ms||0,idle:dd.idle_time_ms||0,keys:dd.keystrokes||0,clicks:dd.clicks||0,words:_mwc,topApp:dd.top_apps?.[0]?.app||'—',annotations:dd.idle_annotations||[],projectSummary:dd.project_summary||{}});}}
+        const wT=tA+tI,wP=wT>0?((tA/wT)*100).toFixed(1):0;const avgActive=dCount>0?tA/dCount:0;const score=Math.round((wT>0?tA/wT:0)*70+Math.min(30,(tK+tC)/(500*Math.max(dCount,1))*30));let tProd=0,tDist=0,tNeut=0;dailyData.forEach(d=>{const dd=history[d.date];if(!dd)return;const {prodMs:dp,distMs:dd2,neutMs:dn}=calcFocusTotals(dd.top_apps||[],dd.browser_subcategories||{});tProd+=dp;tDist+=dd2;tNeut+=dn;});const tFocusTotal=tProd+tDist+tNeut||1;const tFocusPct=Math.round((tProd/tFocusTotal)*100);const tDistPct=Math.round((tDist/tFocusTotal)*100);
+        let md=`---\ntitle: "📋 ${label} Report"\ndate: ${today}\ntags: [productivity, ${label.toLowerCase()}-report]\n${label.toLowerCase()}_score: ${score}\ndays_tracked: ${dCount}\ntotal_active_hours: ${(tA/3600000).toFixed(1)}\n---\n\n`;
+        md+=`# 📋 ${label} Activity Report\n## ${days === 14 ? 'Fortnight' : 'Week'} ending ${new Date().toLocaleDateString('en',{month:'long',day:'numeric',year:'numeric'})}\n\n`;
+        if(days===14)md+=`> *📋 Prepared for fortnightly catch-up meeting*\n\n`;
+        md+=`---\n\n`;
+        md+=`> [!abstract] 📊 ${label} Dashboard — ${dCount} days tracked\n> \n> ### ${starRating(score)} Score: **${score}/100**\n> \`${makeBar(score)}\`\n> \n`;
+        md+=`> | 🟢 Active | 🔴 Idle | ⌨️ Keys | 📝 Words | 🖱️ Clicks | Avg/Day |\n> |-----------|---------|---------|----------|----------|---------|\n`;
+        md+=`> | **${fmtDur(tA)}** | **${fmtDur(tI)}** | **${tK.toLocaleString()}** | **${tW.toLocaleString()}** | **${tC.toLocaleString()}** | **${fmtDur(avgActive,true)}** |\n\n`;        md+=`> \n> | ✅ Productive | 🚫 Distracting | ⚖️ Neutral |\n> |-------------|--------------|---------|\n`;        md+=`> | **${fmtDur(tProd,true)}** (${tFocusPct}%) | **${fmtDur(tDist,true)}** (${tDistPct}%) | **${fmtDur(tNeut,true)}** (${100-tFocusPct-tDistPct}%) |\n`;        md+=`> \`✅ ${makeBar(tFocusPct,15)}\` Productive\n> \`🚫 ${makeBar(tDistPct,15)}\` Distracting\n\n`;
+        // Daily chart
+        if(dailyData.length){md+=`## 📊 Daily Active Time\n\n\`\`\`mermaid\nxychart-beta\n    title "Active Minutes by Day"\n    x-axis [${dailyData.map(d=>`"${d.dl}"`).join(',')}]\n    y-axis "Minutes"\n    bar [${dailyData.map(d=>Math.round(d.active/60000)).join(',')}]\n\`\`\`\n\n`;
+        md+=`## 📋 Daily Breakdown\n\n| Day | Active | Active% | ⌨️ Keys | 📝 Words | 🖱️ Clicks | Top App | Visual |\n|-----|--------|---------|---------|----------|----------|---------|--------|\n`;dailyData.forEach(d=>{const t=d.active+d.idle;const p=t>0?Math.round((d.active/t)*100):0;md+=`| ${d.dl} | **${fmtDur(d.active,true)}** | ${p}% | ${d.keys.toLocaleString()} | ${(d.words||0).toLocaleString()} | ${d.clicks.toLocaleString()} | ${d.topApp} | \`${makeBar(p,10)}\` |\n`;});md+='\n';
+        const best=dailyData.reduce((a,b)=>a.active>b.active?a:b);const worst=dailyData.reduce((a,b)=>a.active<b.active?a:b);md+=`> [!tip] 📈 Trends\n> - 🏆 **Best:** ${best.dl} — ${fmtDur(best.active,true)}\n> - 📉 **Least:** ${worst.dl} — ${fmtDur(worst.active,true)}\n\n`;}
+        // Project time across period
+        const allProjects={};dailyData.forEach(d=>{Object.entries(d.projectSummary||{}).forEach(([p,data])=>{if(!allProjects[p])allProjects[p]={total_ms:0,icon:data.icon||'🏷️',sessions:0};allProjects[p].total_ms+=data.total_ms;allProjects[p].sessions+=data.sessions||0;});});
+        const projEntries=Object.entries(allProjects).sort((a,b)=>b[1].total_ms-a[1].total_ms);
+        if(projEntries.length){md+=`## 🏷️ Project Time Summary\n\n> [!example] 🏷️ ${projEntries.length} projects over ${dCount} days\n> \n> | # | Project | Total Time | Sessions | Visual |\n> |---|---------|-----------|----------|--------|\n`;const projTotal=projEntries.reduce((a,[,v])=>a+v.total_ms,0)||1;projEntries.forEach(([name,data],i)=>{const pct=Math.round((data.total_ms/projTotal)*100);md+=`> | ${medal(i)} | ${data.icon} **${mdSafe(name)}** | **${fmtDur(data.total_ms,true)}** | ${data.sessions}x | \`${makeBar(pct,10)}\` |\n`;});md+='\n';
+        md+=`\`\`\`mermaid\npie title "🏷️ Project Time"\n`;projEntries.slice(0,8).forEach(([name,data])=>md+=`    "${mdSafe(name)}" : ${Math.round(data.total_ms/60000)}\n`);md+=`\`\`\`\n\n`;}
+        // Aggregate app categories across all days
+        const allCats={};
+        dailyData.forEach(d=>{
+            const dd=history[d.date];
+            Object.entries(dd?.app_categories||{}).forEach(([cat,ms])=>{allCats[cat]=(allCats[cat]||0)+ms;});
+        });
+        const catEntries=Object.entries(allCats).sort((a,b)=>b[1]-a[1]);
+        if(catEntries.length){
+            const catTotal=catEntries.reduce((a,[,v])=>a+v,0)||1;
+            md+=`## 🏷️ Time by Category\n\n`;
+            md+=`\`\`\`mermaid\npie title "🏷️ Time by Category"\n`;
+            catEntries.forEach(([cat,ms])=>md+=`    "${mdSafe(cat)}" : ${Math.round(ms/60000)}\n`);
+            md+=`\`\`\`\n\n`;
+            md+=`> [!example] 🏷️ Category Breakdown (${label})\n> \n> | Category | Total Time | % | Avg/Day | Visual |\n> |----------|-----------|---|---------|--------|\n`;
+            catEntries.forEach(([cat,ms])=>{const pct=Math.round((ms/catTotal)*100);const icon=({'Browsers':'🌐','Development':'💻','Office':'📄','Communication':'💬','Productivity':'📋','Media':'🎵','Design':'🎨','Terminal':'⬛','Remote':'🖥️','Research':'🔬','Other':'📦'})[cat]||'📦';const avgDay=fmtDur(ms/Math.max(dCount,1),true);md+=`> | ${icon} **${cat}** | **${fmtDur(ms,true)}** | ${pct}% | ${avgDay} | \`${makeBar(pct,10)}\` |\n`;});
+            md+='\n';
+            // Aggregate browser sub-categories
+            const allBsub={};
+            dailyData.forEach(d=>{
+                const dd=history[d.date];
+                Object.entries(dd?.browser_subcategories||{}).forEach(([name,data])=>{
+                    if(!allBsub[name])allBsub[name]={ms:0,icon:data.icon,productivity:data.productivity};
+                    allBsub[name].ms+=data.ms;
+                });
+            });
+            const bsubEntries=Object.entries(allBsub).sort((a,b)=>b[1].ms-a[1].ms);
+            if(bsubEntries.length){
+                const bTotal=bsubEntries.reduce((a,[,v])=>a+v.ms,0)||1;
+                const prodColor={'productive':'✅','distracting':'🚫','neutral':'⚖️'};
+                md+=`### 🌐 Browser Activity Breakdown\n\n`;
+                md+=`> [!info] 🌐 How browser time was spent\n> \n> | Sub-Category | Total Time | % | Productivity | Visual |\n> |-------------|-----------|---|-------------|--------|\n`;
+                bsubEntries.forEach(([name,d])=>{const pct=Math.round((d.ms/bTotal)*100);md+=`> | ${d.icon} **${mdSafe(name)}** | **${fmtDur(d.ms,true)}** | ${pct}% | ${prodColor[d.productivity]||'⚖️'} | \`${makeBar(pct,10)}\` |\n`;});
+                md+='\n';
+                md+=`\`\`\`mermaid\npie title "🌐 Browser Time by Activity"\n`;
+                bsubEntries.forEach(([name,d])=>md+=`    "${mdSafe(name)}" : ${Math.round(d.ms/60000)}\n`);
+                md+=`\`\`\`\n\n`;
+            }
+            md+=`---\n\n`;
+        }
+        // Annotations
+        const allAnn=dailyData.flatMap(d=>d.annotations);if(allAnn.length){md+=`## 📝 Away Activities\n\n`;const catTotals={};allAnn.forEach(a=>{catTotals[a.category]=(catTotals[a.category]||0)+a.duration_ms;});md+=`> [!warning] 📝 ${allAnn.length} away periods\n> \n> | Activity | Total | Count |\n> |----------|-------|-------|\n`;Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).forEach(([cat,ms])=>{md+=`> | ${cat} | **${fmtDur(ms,true)}** | ${allAnn.filter(a=>a.category===cat).length}x |\n`;});md+='\n';}
+        md+=`---\n\n## 📝 ${label} Reflection\n\n> [!quote] 💭 Review\n> \n> - [ ] Key accomplishments:\n> - [ ] Challenges faced:\n> - [ ] Goals for next ${label.toLowerCase()} period:\n> - [ ] Actions to reduce procrastination:\n\n`;
+        md+=`---\n*🔒 Generated by [[PC Activity Monitor]] · ${label} Report · ${today}*\n`;
+        showMd(md,`${label} Report ${today}.md`,`📋 ${label} Report`);}
+
+    // ==================== MODAL ====================
+    function showMd(md,file,title){lastMd=md;lastMdFile=file;document.getElementById('mdModal').classList.remove('hidden');document.getElementById('mdModal').classList.add('flex');document.getElementById('mdContent').textContent=md;document.getElementById('mdModalTitle').textContent=title||'Obsidian Markdown';}
+    function closeMd(){document.getElementById('mdModal').classList.add('hidden');document.getElementById('mdModal').classList.remove('flex');}
+    function copyMd(){navigator.clipboard.writeText(lastMd).then(()=>{const b=document.getElementById('copyBtn');b.innerHTML='✅ Copied!';setTimeout(()=>b.innerHTML='📋 Copy',2000);});}
+    function downloadMd(){const b=new Blob([lastMd],{type:'text/markdown'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=lastMdFile;a.click();}
+    function clearData(){if(!confirm('⚠️ Clear ALL data?'))return;fetch('/api/clear').then(()=>location.reload());}
+
+    // ==================== CLOCK & CALENDAR ====================
+    let calViewYear, calViewMonth;
+
+    function initClock() {
+        const now = new Date();
+        calViewYear = now.getFullYear();
+        calViewMonth = now.getMonth();
+        tickClock();
+        renderCalendar();
+        setInterval(tickClock, 1000);
+    }
+
+    function tickClock() {
+        const now = new Date();
+        const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+        const h12 = h % 12 || 12;
+        const ampm = h < 12 ? 'AM' : 'PM';
+        const pad = n => String(n).padStart(2, '0');
+
+        document.getElementById('clockDisplay').textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
+        document.getElementById('clockAmPm').textContent = ampm;
+
+        const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const ordinal = d => d + (['th','st','nd','rd'][((d%100-20)%10)||((d%100-10)?d%10:0)]||'th');
+        document.getElementById('clockDate').textContent = `${days[now.getDay()]}, ${ordinal(now.getDate())} ${months[now.getMonth()]} ${now.getFullYear()}`;
+        document.getElementById('clockTz').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
+    function renderCalendar() {
+        const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+
+        // Collect dates that have activity data
+        const dataDates = new Set(Object.keys(history || {}));
+
+        document.getElementById('calTitle').textContent = months[calViewMonth];
+        document.getElementById('calYear').textContent = calViewYear;
+
+        const firstDay = new Date(calViewYear, calViewMonth, 1);
+        const lastDay = new Date(calViewYear, calViewMonth + 1, 0);
+        // Monday-first: getDay() 0=Sun→6, 1=Mon→0 ... 6=Sat→5
+        const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // 0=Mon
+        const totalDays = lastDay.getDate();
+
+        let cells = [];
+        // Leading empty cells
+        for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+        for (let d = 1; d <= totalDays; d++) cells.push(d);
+        // Trailing empties to complete last row
+        while (cells.length % 7 !== 0) cells.push(null);
+
+        document.getElementById('calGrid').innerHTML = cells.map(d => {
+            if (!d) return `<div class="aspect-square"></div>`;
+            const dateStr = `${calViewYear}-${String(calViewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const isToday = dateStr === todayStr;
+            const hasData = dataDates.has(dateStr);
+            const isPast = dateStr < todayStr;
+            const isFuture = dateStr > todayStr;
+            const dow = (new Date(calViewYear, calViewMonth, d).getDay() + 6) % 7;
+            const isWeekend = dow >= 5;
+
+            let cls = 'aspect-square rounded-lg flex items-center justify-center text-xs font-medium cursor-default transition-all ';
+            if (isToday) {
+                cls += 'bg-blue-500 text-white font-black ring-2 ring-blue-400/60 shadow-lg shadow-blue-500/30';
+            } else if (hasData && isPast) {
+                cls += 'bg-green-500/25 text-green-300 border border-green-500/30 cursor-pointer hover:bg-green-500/40';
+            } else if (isPast && isWeekend) {
+                cls += 'text-purple-400/50';
+            } else if (isPast) {
+                cls += 'text-gray-600';
+            } else if (isFuture && isWeekend) {
+                cls += 'text-purple-400/30';
+            } else {
+                cls += 'text-gray-700';
+            }
+
+            const clickHandler = hasData && !isToday ? `onclick="calDayClick('${dateStr}')"` : '';
+            return `<div class="${cls}" ${clickHandler}>${d}</div>`;
+        }).join('');
+    }
+
+    function calShift(dir) {
+        calViewMonth += dir;
+        if (calViewMonth > 11) { calViewMonth = 0; calViewYear++; }
+        if (calViewMonth < 0) { calViewMonth = 11; calViewYear--; }
+        renderCalendar();
+    }
+
+    function calGoToday() {
+        const now = new Date();
+        calViewYear = now.getFullYear();
+        calViewMonth = now.getMonth();
+        renderCalendar();
+    }
+
+    function calDayClick(dateStr) {
+        // Open the day detail modal for that date
+        openDayDetail(dateStr);
+    }
+
+    // Re-render calendar when history loads (to show data dots)
+    const _origPollHistory = pollHistory;
+    // eslint-disable-next-line no-global-assign
+    pollHistory = async function() {
+        await _origPollHistory();
+        if (document.getElementById('tab-clock')?.classList.contains('active')) {
+            renderCalendar();
+        }
+    };
+
+    // ==================== INSIGHTS ====================
+    function renderInsights(s) {
+        const panel = document.getElementById('insightsPanel');
+        const list = document.getElementById('insightsList');
+        if (!s || !s.top_apps) { panel.classList.add('hidden'); return; }
+        const insights = [];
+        const totalMs = s.active_time_ms + s.idle_time_ms;
+
+        // Start time
+        if (s.session_start) {
+            const startT = new Date(s.session_start).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+            insights.push(`🕗 Session started at <strong>${startT}</strong>`);
+        }
+        // Deep focus block
+        const fb = calcDeepFocusBlock(s);
+        if (fb && fb.duration >= 10*60*1000) {
+            insights.push(`🧠 Longest focus block: <strong>${fmtDur(fb.duration,true)}</strong> in ${APP_ICONS[fb.app]||'📱'} ${fb.app}`);
+        }
+        // Distraction warning
+        const {distMs, prodMs} = calcFocusTotals(s.top_apps||[], s.browser_subcategories||{});
+        if (distMs > 20*60*1000) {
+            const topDist = (s.top_apps||[]).find(a=>BROWSER_APP_NAMES.includes(a.app)||classifyAppFromData(a.app,a.windows)==='distracting');
+            insights.push(`⚠️ <strong>${fmtDur(distMs,true)}</strong> on distracting apps${topDist?' — top: '+topDist.app:''}`);
+        }
+        // Comparison to 7-day average
+        const dates7 = Object.keys(history).filter(k=>k!==new Date().toISOString().split('T')[0]).sort().slice(-7);
+        if (dates7.length >= 3) {
+            const avg7 = dates7.reduce((a,k)=>a+(history[k]?.active_time_ms||0),0)/dates7.length;
+            const diff = s.active_time_ms - avg7;
+            const pct = avg7>0?Math.round(Math.abs(diff)/avg7*100):0;
+            if (pct > 10) insights.push(diff>0 ? `📈 <strong>${pct}% more active</strong> than your 7-day average` : `📉 <strong>${pct}% less active</strong> than your 7-day average`);
+        }
+        // Switch fatigue
+        const switches = s.app_switches||[];
+        const activeMin = s.active_time_ms/60000;
+        const switchRateVal = activeMin>0?Math.round(switches.length/(activeMin/60)*10)/10:0;
+        if (switchRateVal > 8) insights.push(`🔀 High context-switching: <strong>${switchRateVal}/hr</strong> — consider longer focus sessions`);
+        // Word count milestone
+        const keyCats = s.key_categories||{};
+        const wordEst = Math.max(0,(keyCats.space||0)+(keyCats.enter||0));
+        if (wordEst > 500) insights.push(`📝 <strong>${wordEst.toLocaleString()} words</strong> typed today`);
+        // Goal check
+        const goalHrs = parseFloat(localStorage.getItem('dailyGoalHrs')||'6');
+        const activeHrs = s.active_time_ms/3600000;
+        if (activeHrs >= goalHrs) insights.push(`🎯 Daily goal reached! <strong>${activeHrs.toFixed(1)}h</strong> of ${goalHrs}h 🎉`);
+        else {
+            const remaining = goalHrs - activeHrs;
+            if (remaining < 1) insights.push(`🎯 Almost there — <strong>${Math.round(remaining*60)}m</strong> left to reach your daily goal`);
+        }
+
+        if (!insights.length) { panel.classList.add('hidden'); return; }
+        panel.classList.remove('hidden');
+        list.innerHTML = insights.map(i=>`<div class="text-[11px] text-gray-300 flex items-start gap-2 py-1 border-b border-gray-800/50 last:border-0">${i}</div>`).join('');
+    }
+
+    // ==================== DEEP FOCUS ====================
+    function calcDeepFocusBlock(s) {
+        // Scan app_switches for longest uninterrupted productive stretch
+        const switches = (s.app_switches||[]).slice().sort((a,b)=>a.ts-b.ts);
+        if (!switches.length) return null;
+        let best = null, blockStart = null, blockApp = null, blockMs = 0;
+        for (let i=0; i<switches.length; i++) {
+            const sw = switches[i];
+            const prod = BROWSER_APP_NAMES.includes(sw.to) ?
+                ((s.browser_subcategories||{}) && Object.values(s.browser_subcategories||{}).some(b=>b.productivity==='productive') ? 'productive' : 'neutral') :
+                classifyAppFromData(sw.to, []);
+            if (prod === 'productive') {
+                if (!blockStart) { blockStart = sw.ts; blockApp = sw.to; }
+                const endTs = i+1 < switches.length ? switches[i+1].ts : Date.now();
+                blockMs = endTs - blockStart;
+            } else {
+                if (blockMs > 0 && (!best || blockMs > best.duration)) {
+                    best = { duration: blockMs, app: blockApp, start: blockStart };
+                }
+                blockStart = null; blockMs = 0;
+            }
+        }
+        if (blockMs > 0 && (!best || blockMs > best.duration)) best = { duration: blockMs, app: blockApp, start: blockStart };
+        return best;
+    }
+
+    function renderDeepFocus(s) {
+        const fb = calcDeepFocusBlock(s);
+        if (fb && fb.duration >= 5*60*1000) {
+            document.getElementById('deepFocusTime').textContent = fmtDur(fb.duration,true);
+            document.getElementById('deepFocusApp').textContent = (APP_ICONS[fb.app]||'📱') + ' ' + (fb.app||'Unknown');
+            document.getElementById('deepFocusWhen').textContent = 'at ' + new Date(fb.start).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+        } else {
+            document.getElementById('deepFocusTime').textContent = '—';
+            document.getElementById('deepFocusApp').textContent = 'No focus block yet';
+            document.getElementById('deepFocusWhen').textContent = '—';
+        }
+        // Switch rate & fatigue
+        const switches = s.app_switches||[];
+        const activeMin = s.active_time_ms/60000;
+        const rate = activeMin>0 ? Math.round(switches.length/(activeMin/60)*10)/10 : 0;
+        document.getElementById('switchRate').textContent = rate.toFixed(1);
+        document.getElementById('switchTotal').textContent = switches.length;
+        const fatigueEl = document.getElementById('switchFatigue');
+        if (rate >= 12) { fatigueEl.textContent = '🔴 Very high — deep work disrupted'; fatigueEl.className='text-[9px] mt-0.5 text-red-400'; }
+        else if (rate >= 8) { fatigueEl.textContent = '🟡 Moderate context-switching'; fatigueEl.className='text-[9px] mt-0.5 text-yellow-400'; }
+        else if (rate >= 4) { fatigueEl.textContent = '🟢 Normal switching rate'; fatigueEl.className='text-[9px] mt-0.5 text-green-400'; }
+        else { fatigueEl.textContent = rate>0?'✅ Very focused':'Start working…'; fatigueEl.className='text-[9px] mt-0.5 text-gray-500'; }
+    }
+
+    // ==================== TYPING BURSTS ====================
+    function renderTypingBursts(s) {
+        const sessions = (s.typing_sessions||[]).slice().reverse().slice(0,20);
+        const el = document.getElementById('typingBurstTimeline');
+        const badge = document.getElementById('burstSummaryBadge');
+        const total = (s.typing_sessions||[]).length;
+        badge.textContent = `${total} burst${total!==1?'s':''}`;
+        if (!sessions.length) {
+            el.innerHTML = '<div class="text-center text-gray-600 text-xs py-4">Start typing to see bursts…</div>';
+            return;
+        }
+        // Find max KPM for relative bar widths
+        const maxKpm = Math.max(...sessions.map(s=>s.kpm), 1);
+        el.innerHTML = sessions.map(sess => {
+            const t = new Date(sess.start).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+            const barW = Math.round((sess.kpm/maxKpm)*100);
+            const col = sess.kpm>=100?'bg-green-500':sess.kpm>=60?'bg-indigo-500':'bg-indigo-700';
+            const appLabel = sess.app ? ` · ${APP_ICONS[sess.app]||'📱'} ${sess.app}` : '';
+            return `<div class="flex items-center gap-2 py-1 border-b border-gray-800/50 last:border-0">
+                <span class="text-[9px] text-gray-500 w-10 flex-shrink-0">${t}</span>
+                <div class="flex-1 bg-gray-800 rounded-full h-2 overflow-hidden"><div class="${col} h-full rounded-full" style="width:${barW}%"></div></div>
+                <span class="text-[9px] text-indigo-300 w-14 text-right flex-shrink-0">${sess.kpm} KPM</span>
+                <span class="text-[9px] text-gray-500 w-12 text-right flex-shrink-0">${fmtDur(sess.duration,true)}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // ==================== POMODORO ====================
+    let _pomoDismissedAt = 0;
+    let _pomoIntervalMin = 50;
+    function checkPomodoro(s) {
+        const card = document.getElementById('pomodoroCard');
+        _pomoIntervalMin = parseFloat(localStorage.getItem('pomodoroMins')||'50');
+        const thresholdMs = _pomoIntervalMin * 60 * 1000;
+        const sinceLastIdle = (() => {
+            const periods = s.idle_periods||[];
+            if (!periods.length) return s.active_time_ms;
+            const last = periods[periods.length-1];
+            return Date.now() - last.end;
+        })();
+        const dismissed = Date.now() - _pomoDismissedAt < thresholdMs;
+        if (!dismissed && sinceLastIdle >= thresholdMs) {
+            card.classList.remove('hidden');
+            const pct = Math.min(100, Math.round((sinceLastIdle/thresholdMs)*100));
+            document.getElementById('pomodoroBar').style.width = pct + '%';
+            const overMin = Math.round((sinceLastIdle - thresholdMs)/60000);
+            document.getElementById('pomodoroMsg').textContent =
+                overMin > 0 ? `${_pomoIntervalMin}m without a break — ${overMin}m overdue` : `${_pomoIntervalMin}m of continuous work — time to rest!`;
+        } else {
+            card.classList.add('hidden');
+        }
+    }
+    function dismissPomodoro() {
+        _pomoDismissedAt = Date.now();
+        document.getElementById('pomodoroCard').classList.add('hidden');
+    }
+
+    // ==================== SPARKLINES + RECORDS + PATTERNS ====================
+    function renderSparklines() {
+        const today = new Date().toISOString().split('T')[0];
+        const days = [];
+        for (let i=29; i>=0; i--) {
+            const d = new Date(); d.setDate(d.getDate()-i);
+            const k = d.toISOString().split('T')[0];
+            days.push({ key: k, isToday: k===today, dd: history[k] || null });
+        }
+        const buildBar = (containerId, vals, colorFn, fmtFn, avgId) => {
+            const el = document.getElementById(containerId);
+            if (!el) return;
+            const max = Math.max(...vals, 1);
+            const nonZero = vals.filter(v=>v>0);
+            const avg = nonZero.length ? Math.round(nonZero.reduce((a,b)=>a+b,0)/nonZero.length) : 0;
+            document.getElementById(avgId).textContent = 'avg ' + fmtFn(avg);
+            el.innerHTML = vals.map((v,i) => {
+                const h = Math.round((v/max)*32); // max height 32px
+                const col = colorFn(v, max);
+                const label = days[i].key.slice(5); // MM-DD
+                return `<div class="flex-1 flex flex-col items-center justify-end" style="height:32px" title="${label}: ${fmtFn(v)}">
+                    <div class="${col} rounded-sm w-full transition-all" style="height:${Math.max(1,h)}px"></div>
+                </div>`;
+            }).join('');
+        };
+        const activeVals = days.map(d => d.dd ? Math.round(d.dd.active_time_ms/60000) : 0);
+        const keyVals = days.map(d => d.dd ? (d.dd.keystrokes||0) : 0);
+        const scoreVals = days.map(d => {
+            if (!d.dd) return 0;
+            const dd = d.dd;
+            const t = (dd.active_time_ms||0)+(dd.idle_time_ms||0);
+            const r = t>0?dd.active_time_ms/t:0;
+            return Math.round(r*70+Math.min(30,((dd.keystrokes||0)+(dd.clicks||0))/500*30));
+        });
+        buildBar('sparkActive', activeVals, (v,m) => v===0?'bg-gray-800':'bg-green-500/70 hover:bg-green-400', v=>fmtDur(v*60000,true), 'sparkActiveAvg');
+        buildBar('sparkKeys', keyVals, (v,m) => v===0?'bg-gray-800':'bg-indigo-500/70 hover:bg-indigo-400', v=>v.toLocaleString(), 'sparkKeysAvg');
+        buildBar('sparkScore', scoreVals, (v,m) => v===0?'bg-gray-800':v>=80?'bg-green-500/80':v>=60?'bg-blue-500/70':v>=40?'bg-yellow-500/70':'bg-red-500/70', v=>v+'/100', 'sparkScoreAvg');
+    }
+
+    function renderPersonalRecords() {
+        const today = new Date().toISOString().split('T')[0];
+        let bestDayMs=0, bestDayKey='—', bestKpm=0, bestScore=0, mostKeys=0, mostKeysDay='—';
+        Object.entries(history).forEach(([key,dd]) => {
+            if (!dd) return;
+            const active = dd.active_time_ms||0;
+            if (active > bestDayMs) { bestDayMs=active; bestDayKey=key; }
+            if ((dd.peak_kpm||0) > bestKpm) bestKpm = dd.peak_kpm||0;
+            if ((dd.keystrokes||0) > mostKeys) { mostKeys=dd.keystrokes||0; mostKeysDay=key; }
+            const t=(active)+(dd.idle_time_ms||0);
+            const r=t>0?active/t:0;
+            const sc=Math.round(r*70+Math.min(30,((dd.keystrokes||0)+(dd.clicks||0))/500*30));
+            if (sc>bestScore) bestScore=sc;
+        });
+        // Also check localStorage for persisted bests
+        const stored = JSON.parse(localStorage.getItem('personalRecords')||'{}');
+        if (bestKpm > (stored.bestKpm||0)) stored.bestKpm = bestKpm;
+        if (bestScore > (stored.bestScore||0)) stored.bestScore = bestScore;
+        if (bestDayMs > (stored.bestDayMs||0)) { stored.bestDayMs=bestDayMs; stored.bestDayKey=bestDayKey; }
+        if (mostKeys > (stored.mostKeys||0)) { stored.mostKeys=mostKeys; stored.mostKeysDay=mostKeysDay; }
+        localStorage.setItem('personalRecords', JSON.stringify(stored));
+        document.getElementById('prBestDay').textContent = stored.bestDayKey && stored.bestDayKey!=='—' ? `${stored.bestDayKey} · ${fmtDur(stored.bestDayMs,true)}` : '—';
+        document.getElementById('prBestKpm').textContent = stored.bestKpm ? `${stored.bestKpm} KPM` : '—';
+        document.getElementById('prBestScore').textContent = stored.bestScore ? `${stored.bestScore}/100` : '—';
+        document.getElementById('prMostKeys').textContent = stored.mostKeys ? `${stored.mostKeys.toLocaleString()} · ${stored.mostKeysDay}` : '—';
+    }
+
+    function renderPatterns() {
+        // Average hourly active time across last 14 days from history
+        const hourTotals = new Array(24).fill(0);
+        const hourCounts = new Array(24).fill(0);
+        const days14 = Object.keys(history).sort().slice(-14);
+        days14.forEach(k => {
+            const dd = history[k];
+            if (!dd?.hourly_active) return;
+            dd.hourly_active.forEach((ms,h) => {
+                if ((ms||0) > 0) { hourTotals[h] += ms; hourCounts[h]++; }
+            });
+        });
+        const avgHourly = hourTotals.map((t,h) => hourCounts[h]>0 ? Math.round(t/hourCounts[h]/60000) : 0);
+        const max = Math.max(...avgHourly, 1);
+        // Peak and quiet
+        let peakH=0, quietH=9;
+        avgHourly.forEach((v,h) => { if(v>avgHourly[peakH]) peakH=h; });
+        const workHours = avgHourly.map((v,h)=>({v,h})).filter(x=>x.h>=7&&x.h<=22);
+        quietH = workHours.reduce((a,b)=>a.v<b.v?a:b,{v:999,h:9}).h;
+        document.getElementById('patternPeakHour').textContent = `${peakH.toString().padStart(2,'0')}:00 – ${(peakH+1).toString().padStart(2,'0')}:00`;
+        document.getElementById('patternPeakVal').textContent = `avg ${avgHourly[peakH]}m active`;
+        document.getElementById('patternQuietHour').textContent = `${quietH.toString().padStart(2,'0')}:00 – ${(quietH+1).toString().padStart(2,'0')}:00`;
+        document.getElementById('patternQuietVal').textContent = `avg ${avgHourly[quietH]}m active`;
+        // Mini bar chart
+        const pbar = document.getElementById('patternBar');
+        if (pbar) {
+            pbar.innerHTML = avgHourly.map((v,h) => {
+                const ht = Math.round((v/max)*24);
+                const col = v===0?'bg-gray-800':v>=max*0.7?'bg-green-500/80':v>=max*0.4?'bg-green-600/60':'bg-green-900/60';
+                return `<div class="flex-1 ${col} rounded-sm" style="height:${Math.max(1,ht)}px" title="${h}:00 avg ${v}m"></div>`;
+            }).join('');
+        }
+    }
+
+    // ==================== INIT ====================
+    async function init(){
+        initCharts();
+        initFocusCharts();
+        initClock();
+        await tryConnect();
+        // Load history immediately so daily summary shows data right away
+        await pollHistory();
+        updateDailySummary();
+        setInterval(pollStats, POLL_INTERVAL);
+        setInterval(()=>{ updateCharts(); pollHistory(); }, HISTORY_INTERVAL);
+        setTimeout(updateCharts, 1000);
+    }
+    init();
+    </script>
+</body>
+</html>
+</body>
+</html>
